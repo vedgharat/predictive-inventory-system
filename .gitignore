@@ -1,0 +1,22 @@
+# --- Java / Spring Boot ---
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+*.class
+
+# --- IDEs ---
+.idea/
+*.iml
+*.vscode/
+
+# --- Python / Machine Learning ---
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+
+# --- OS Generated Files ---
+.DS_Store
