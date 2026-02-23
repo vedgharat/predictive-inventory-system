@@ -11,9 +11,14 @@ import java.util.Optional;
 public interface InventoryRepository extends JpaRepository<InventoryItem, Long> {
     Optional<InventoryItem> findBySku(String sku);
 
-    // This forces Hibernate to ONLY touch the aiVelocity column!
     @Modifying
     @Transactional
     @Query("UPDATE InventoryItem i SET i.aiVelocity = :aiVelocity WHERE i.sku = :sku")
     void updateAiVelocity(@Param("sku") String sku, @Param("aiVelocity") Double aiVelocity);
+
+    // THE NEW FIX: Surgically add stock without overwriting velocity!
+    @Modifying
+    @Transactional
+    @Query("UPDATE InventoryItem i SET i.quantity = i.quantity + :amount WHERE i.sku = :sku")
+    void addStock(@Param("sku") String sku, @Param("amount") Integer amount);
 }
