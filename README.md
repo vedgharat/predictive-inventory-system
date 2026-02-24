@@ -10,8 +10,7 @@
 
 An enterprise-grade, event-driven microservices architecture demonstrating real-time data processing, predictive machine learning, high-performance caching, and full-system observability.
 
-*(Note: Replace this line with an image of your frontend or an architecture diagram using `![Architecture Diagram](./path-to-image.png)`)*
-
+![System Architecture Diagram](./inventarch.png)
 ---
 
 ## 🌟 System Architecture & Features
