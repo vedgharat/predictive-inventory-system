@@ -2,9 +2,10 @@ package com.predictive.inventoryservice;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import java.io.Serializable; // ⬅️ Import this
 
 @Entity
-public class SaleRecord {
+public class SaleRecord implements Serializable {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

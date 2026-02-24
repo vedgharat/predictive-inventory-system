@@ -4,6 +4,7 @@ import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.cache.annotation.Cacheable; // Add this import
 import java.util.List;
 
 @RestController
@@ -28,7 +29,9 @@ public class InventoryApiController {
 
     // Endpoint 2: Hydrate the Recent Activity sidebar
     @GetMapping("/sales")
+    @Cacheable("recentSales") // ⬅️ THE MAGIC LINE
     public List<SaleRecord> getRecentSales() {
+        System.out.println("⚠️ CACHE MISS: Fetching from heavy PostgreSQL Database...");
         return saleRecordRepository.findTop10ByOrderByIdDesc();
     }
 }

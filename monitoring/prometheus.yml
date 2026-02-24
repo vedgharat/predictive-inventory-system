@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 5s # ⏱️ Scrape metrics every 5 seconds
+
+scrape_configs:
+  - job_name: 'inventory-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      # host.docker.internal allows the Docker container to see your local Spring Boot app
+      - targets: ['host.docker.internal:8082']
