@@ -6,20 +6,29 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
-@RestController // Notice this is @RestController, not just @Controller!
+@RestController
 @RequestMapping("/api/inventory")
-@CrossOrigin(origins = "*") // This allows React (port 5173) to securely ask for data
+@CrossOrigin(origins = "*") // Allows React to fetch data safely
 public class InventoryApiController {
 
     private final InventoryRepository inventoryRepository;
+    private final SaleRecordRepository saleRecordRepository; // ⬅️ Injecting the history repo
 
-    public InventoryApiController(InventoryRepository inventoryRepository) {
+    public InventoryApiController(InventoryRepository inventoryRepository,
+                                  SaleRecordRepository saleRecordRepository) {
         this.inventoryRepository = inventoryRepository;
+        this.saleRecordRepository = saleRecordRepository;
     }
 
-    // When React asks on boot, hand over the entire database table as JSON
+    // Endpoint 1: Hydrate the main dashboard cards
     @GetMapping
     public List<InventoryItem> getAllInventory() {
         return inventoryRepository.findAll();
+    }
+
+    // Endpoint 2: Hydrate the Recent Activity sidebar
+    @GetMapping("/sales")
+    public List<SaleRecord> getRecentSales() {
+        return saleRecordRepository.findTop10ByOrderByIdDesc();
     }
 }
