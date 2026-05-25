@@ -96,52 +96,72 @@ function StorePage({ onCartChange }) {
     const [toasts, setToasts] = useState([])
     const [cart, setCart] = useState({})
     const [filter, setFilter] = useState('All')
+    const [wsConnected, setWsConnected] = useState(false)
 
     const categories = ['All', ...new Set(Object.values(CATALOGUE).map(p => p.category))]
 
     const addToast = (msg, type = 'success') => {
         const id = Date.now()
         setToasts(prev => [...prev, { id, msg, type }])
-        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000)
+        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000)
     }
 
     useEffect(() => {
         fetch('http://localhost:8082/api/inventory')
             .then(r => r.json())
             .then(setInventory)
+            .catch(() => addToast('Cannot reach inventory service', 'error'))
     }, [])
 
     useEffect(() => {
         const client = new Client({
             webSocketFactory: () => new SockJS('http://localhost:8082/ws'),
+            reconnectDelay: 3000,
             debug: () => {},
             onConnect: () => {
+                setWsConnected(true)
                 client.subscribe('/topic/inventory', msg => {
                     const item = JSON.parse(msg.body)
+                    // Authoritative update from server — overwrites optimistic value
                     setInventory(prev => prev.map(i => i.sku === item.sku ? { ...i, quantity: item.quantity } : i))
                 })
-            }
+            },
+            onDisconnect: () => setWsConnected(false),
         })
         client.activate()
         return () => client.deactivate()
     }, [])
 
     const handleOrder = async (sku, qty) => {
+        // Optimistic update: decrement stock immediately so the UI responds right away.
+        // The authoritative WebSocket update will arrive ~500ms later and overwrite this.
+        setInventory(prev => prev.map(i =>
+            i.sku === sku ? { ...i, quantity: Math.max(0, i.quantity - qty) } : i
+        ))
+
         try {
             const res = await fetch(`http://localhost:8081/api/orders/place?sku=${sku}&quantity=${qty}`, { method: 'POST' })
             if (res.ok) {
                 const meta = CATALOGUE[sku]
-                addToast(`Added ${meta?.name || sku} to cart`, 'success')
+                addToast(`${meta?.name || sku} added to cart`, 'success')
                 setCart(prev => {
                     const next = { ...prev, [sku]: (prev[sku] || 0) + qty }
                     onCartChange(Object.values(next).reduce((a,b) => a+b, 0))
                     return next
                 })
             } else {
-                addToast('Could not place order', 'error')
+                // Roll back optimistic update on failure
+                setInventory(prev => prev.map(i =>
+                    i.sku === sku ? { ...i, quantity: i.quantity + qty } : i
+                ))
+                addToast('Order failed — stock restored', 'error')
             }
         } catch {
-            addToast('Server unreachable', 'error')
+            // Roll back on network error
+            setInventory(prev => prev.map(i =>
+                i.sku === sku ? { ...i, quantity: i.quantity + qty } : i
+            ))
+            addToast('Cannot reach order service', 'error')
         }
     }
 
@@ -164,6 +184,10 @@ function StorePage({ onCartChange }) {
                     <p className="store-hero-tag">POWERED BY PREDICTIVE AI</p>
                     <h1 className="store-hero-title">Next-Gen Tech,<br />Delivered Fast</h1>
                     <p className="store-hero-sub">Real-time inventory · ML-powered restocking · Kafka event streaming</p>
+                </div>
+                <div className={`store-ws-pill ${wsConnected ? 'conn-ok' : 'conn-err'}`}>
+                    <span className="conn-dot" />
+                    {wsConnected ? 'Live' : 'Connecting…'}
                 </div>
             </div>
 
@@ -277,7 +301,15 @@ function Dashboard() {
                 setItems(data)
                 const now = getTime()
                 const initial = {}
-                data.forEach(item => { initial[item.sku] = [{ time: now, stock: item.quantity }] })
+                // Seed two identical points so the sparkline renders a flat baseline
+                // instead of the "Waiting for events" placeholder. Each order event
+                // appended via WebSocket will then animate the line naturally.
+                data.forEach(item => {
+                    initial[item.sku] = [
+                        { time: '−1m', stock: item.quantity },
+                        { time: now,   stock: item.quantity },
+                    ]
+                })
                 setChartData(initial)
             })
     }, [])
