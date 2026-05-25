@@ -11,6 +11,10 @@ Algorithm: sliding-window rate calculation.
   - velocity = total_units_in_window / elapsed_minutes.
   - Handles burst orders gracefully (treats all events in a burst as
     spread over a minimum of 1 second to avoid divide-by-zero).
+
+Heartbeat: every HEARTBEAT_INTERVAL seconds, publishes a velocity prediction
+  for every known SKU even with no new orders. This lets the Java inventory
+  service trigger restocking on zero-velocity / out-of-stock items.
 """
 
 import json
@@ -22,15 +26,16 @@ from collections import defaultdict, deque
 
 from confluent_kafka import Consumer, Producer, KafkaError, TopicPartition, OFFSET_END
 
-# ── Configuration ──────────────────────────────────────────────
+# -- Configuration ----------------------------------------------------------
 
 KAFKA_BROKER      = os.getenv("KAFKA_BROKER", "localhost:29092")
 CONSUMER_GROUP    = os.getenv("CONSUMER_GROUP", "ai-ml-group-v4")
 INPUT_TOPIC       = "order-events"
 OUTPUT_TOPIC      = "smart-ai-predictions"
 WINDOW_SECONDS    = int(os.getenv("VELOCITY_WINDOW_SECONDS", "300"))  # 5 minutes
+HEARTBEAT_INTERVAL = 30  # seconds between idle predictions for all known SKUs
 
-# ── Logging ────────────────────────────────────────────────────
+# -- Logging ----------------------------------------------------------------
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,7 +44,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("ai-forecasting")
 
-# ── Kafka Clients ──────────────────────────────────────────────
+# -- Kafka Clients ----------------------------------------------------------
 
 consumer = Consumer({
     "bootstrap.servers": KAFKA_BROKER,
@@ -72,7 +77,7 @@ def seek_to_end(kafka_consumer: Consumer, topic: str) -> None:
 
 seek_to_end(consumer, INPUT_TOPIC)
 
-# ── Per-SKU State ──────────────────────────────────────────────
+# -- Per-SKU State ----------------------------------------------------------
 
 # Maps sku -> deque of (wall_clock_time_seconds, quantity)
 sku_events: dict[str, deque] = defaultdict(lambda: deque())
@@ -103,7 +108,19 @@ def compute_velocity(sku: str) -> float:
     return round(units / elapsed_minutes, 4)
 
 
-# ── Main Loop ──────────────────────────────────────────────────
+def publish_prediction(sku: str, velocity: float) -> None:
+    """Publish a velocity prediction for one SKU to the output Kafka topic."""
+    prediction = {
+        "sku": sku,
+        "ai_velocity": velocity,
+        "total_sold": sku_totals[sku],
+        "window_seconds": WINDOW_SECONDS,
+    }
+    producer.produce(OUTPUT_TOPIC, value=json.dumps(prediction).encode("utf-8"))
+    producer.flush()
+
+
+# -- Main Loop --------------------------------------------------------------
 
 
 def run():
@@ -112,9 +129,22 @@ def run():
         KAFKA_BROKER, WINDOW_SECONDS, INPUT_TOPIC,
     )
 
+    last_heartbeat = time.time()
+
     try:
         while True:
             msg = consumer.poll(timeout=1.0)
+
+            # Periodic heartbeat: publish a prediction for every known SKU so
+            # the inventory-service can evaluate restocking even for items with
+            # no recent order activity (e.g. out-of-stock with velocity=0).
+            now = time.time()
+            if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+                for sku in list(sku_first_seen.keys()):
+                    velocity = compute_velocity(sku)
+                    publish_prediction(sku, velocity)
+                    log.debug("Heartbeat: sku=%-20s velocity=%.2f", sku, velocity)
+                last_heartbeat = now
 
             if msg is None:
                 continue
@@ -148,18 +178,7 @@ def run():
             sku_totals[sku] += qty
 
             velocity = compute_velocity(sku)
-            prediction = {
-                "sku": sku,
-                "ai_velocity": velocity,
-                "total_sold": sku_totals[sku],
-                "window_seconds": WINDOW_SECONDS,
-            }
-
-            producer.produce(
-                OUTPUT_TOPIC,
-                value=json.dumps(prediction).encode("utf-8"),
-            )
-            producer.flush()
+            publish_prediction(sku, velocity)
 
             log.info(
                 "Prediction: sku=%-20s velocity=%8.2f u/m  total_sold=%d",
