@@ -1,335 +1,416 @@
-import { useState, useEffect, memo } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom'
 import SockJS from 'sockjs-client'
 import { Client } from '@stomp/stompjs'
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { Activity, LayoutDashboard, ShoppingCart, TrendingUp, Package, Server, AlertCircle, ShoppingBag, Zap, Clock } from 'lucide-react'
+import {
+    AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
+    BarChart, Bar, Cell
+} from 'recharts'
+import {
+    Activity, LayoutDashboard, ShoppingCart, TrendingUp,
+    Package, Server, ShoppingBag, Zap, Clock, AlertTriangle,
+    CheckCircle, XCircle, RefreshCw, ArrowUp, ArrowDown
+} from 'lucide-react'
 import './index.css'
 
-// SUB-COMPONENT: The Chart
-const InventoryChart = memo(({ data, color }) => {
-    return (
-        <ResponsiveContainer width="100%" height={100}>
-            <AreaChart data={data} margin={{ top: 5, right: 0, left: 0, bottom: 5 }}>
-                <defs>
-                    <linearGradient id={`colorUv-${color.replace('#','')}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={color} stopOpacity={0.4}/>
-                        <stop offset="95%" stopColor={color} stopOpacity={0}/>
-                    </linearGradient>
-                </defs>
-                <XAxis dataKey="time" hide />
-                <YAxis domain={['auto', 'auto']} hide />
-                <Tooltip 
-                    contentStyle={{ 
-                        background: 'rgba(15, 23, 42, 0.9)', 
-                        border: '1px solid rgba(255,255,255,0.1)', 
-                        borderRadius: '8px', 
-                        color: 'white', 
-                        boxShadow: '0 4px 15px rgba(0,0,0,0.5)'
-                    }} 
-                    itemStyle={{ color: 'white', fontWeight: 'bold' }}
-                />
-                <Area type="monotone" dataKey="stock" stroke={color} strokeWidth={3} fillOpacity={1} fill={`url(#colorUv-${color.replace('#','')})`} isAnimationActive={false} />
-            </AreaChart>
-        </ResponsiveContainer>
-    );
-});
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
-// SUB-COMPONENT: The Navigation Bar
+const fmt = (n) => n != null ? n.toFixed(2) : '—'
+const getTime = () => new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
+function stockStatus(qty) {
+    if (qty <= 0)  return { label: 'Out of Stock', cls: 'badge-red',    icon: <XCircle size={12} /> }
+    if (qty < 20)  return { label: 'Critical',     cls: 'badge-red',    icon: <AlertTriangle size={12} /> }
+    if (qty < 50)  return { label: 'Low Stock',    cls: 'badge-yellow', icon: <AlertTriangle size={12} /> }
+    return              { label: 'Healthy',         cls: 'badge-green',  icon: <CheckCircle size={12} /> }
+}
+
+// ─── Mini sparkline chart ────────────────────────────────────────────────────
+
+const Sparkline = memo(({ data, color }) => (
+    <ResponsiveContainer width="100%" height={60}>
+        <AreaChart data={data} margin={{ top: 2, right: 0, left: 0, bottom: 2 }}>
+            <defs>
+                <linearGradient id={`g-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="10%" stopColor={color} stopOpacity={0.35} />
+                    <stop offset="90%" stopColor={color} stopOpacity={0} />
+                </linearGradient>
+            </defs>
+            <YAxis domain={['auto', 'auto']} hide />
+            <Area
+                type="monotone"
+                dataKey="stock"
+                stroke={color}
+                strokeWidth={2}
+                fill={`url(#g-${color.replace('#', '')})`}
+                dot={false}
+                isAnimationActive={false}
+            />
+        </AreaChart>
+    </ResponsiveContainer>
+))
+
+// ─── Navbar ─────────────────────────────────────────────────────────────────
+
 function Navbar() {
-    const location = useLocation();
-
+    const location = useLocation()
     return (
-        <div className="glass-nav" style={{ padding: '1rem 2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', zIndex: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <div style={{ width: '40px', height: '40px', background: 'linear-gradient(135deg, var(--accent-cyan), var(--accent-purple))', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', boxShadow: 'var(--gradient-glow-cyan)' }}>
-                    <Server size={22} />
-                </div>
-                <h2 style={{ margin: 0, background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: '1.25rem', letterSpacing: '1px' }}>
-                    NEXUS INVENTORY
-                </h2>
+        <nav className="navbar">
+            <div className="navbar-brand">
+                <div className="brand-icon"><Server size={18} /></div>
+                <span className="brand-name">Nexus Inventory</span>
             </div>
-            
-            <div style={{ display: 'flex', gap: '1rem' }}>
-                <Link to="/" style={{ textDecoration: 'none' }}>
-                    <button className={`nav-btn ${location.pathname === '/' ? 'active-cyan' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <ShoppingCart size={18} /> Point of Sale
-                    </button>
+            <div className="navbar-links">
+                <Link to="/" className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}>
+                    <ShoppingCart size={16} /> Point of Sale
                 </Link>
-                <Link to="/admin" style={{ textDecoration: 'none' }}>
-                    <button className={`nav-btn ${location.pathname === '/admin' ? 'active-orange' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <LayoutDashboard size={18} /> Telemetry Dashboard
-                    </button>
+                <Link to="/admin" className={`nav-link ${location.pathname === '/admin' ? 'active' : ''}`}>
+                    <LayoutDashboard size={16} /> Dashboard
                 </Link>
             </div>
-        </div>
-    );
+        </nav>
+    )
 }
 
-// ROUTE 1: THE CUSTOMER STOREFRONT
-function CustomerStore() {
-    const [inventory, setInventory] = useState({});
+// ─── Point of Sale ───────────────────────────────────────────────────────────
+
+function PointOfSale() {
+    const [inventory, setInventory] = useState([])
+    const [toasts, setToasts] = useState([])
+
+    const addToast = (msg, type = 'success') => {
+        const id = Date.now()
+        setToasts(prev => [...prev, { id, msg, type }])
+        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000)
+    }
 
     useEffect(() => {
         fetch('http://localhost:8082/api/inventory')
-            .then(res => res.json())
-            .then(data => {
-                const initialInv = {};
-                data.forEach(item => initialInv[item.sku] = item.quantity);
-                setInventory(initialInv);
-            });
-    }, []);
+            .then(r => r.json())
+            .then(setInventory)
+    }, [])
 
-    const handleOrder = async (sku, quantity) => {
-        try {
-            await fetch(`http://localhost:8081/api/orders/place?sku=${sku}&quantity=${quantity}`, { method: 'POST' });
-        } catch (err) {
-            console.error("Order failed:", err);
-        }
-    };
-
-    return (
-        <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '3rem' }}>
-            <div style={{ padding: '3rem 2rem 1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
-                <h1 style={{ fontSize: '2rem', margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <ShoppingBag /> Retail Simulation Environment
-                </h1>
-                <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem', margin: '0' }}>Generate synthetic orders to test predictive restocking capabilities.</p>
-            </div>
-
-            <div className="store-grid">
-                {Object.keys(inventory).length === 0 && (
-                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                        <h3>No items in inventory. Check database connection.</h3>
-                    </div>
-                )}
-                
-                {Object.keys(inventory).map(sku => (
-                    <div key={sku} className="glass-panel product-card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <div>
-                                <h2 style={{ margin: '0 0 0.5rem 0', fontSize: '1.5rem' }}>{sku.split('-')[0]}</h2>
-                                <span className="sku-badge">{sku}</span>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Current Stock</div>
-                                <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: inventory[sku] > 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
-                                    {inventory[sku]}
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div style={{ display: 'flex', gap: '1rem', marginTop: 'auto' }}>
-                            <button className="btn-action btn-buy" onClick={() => handleOrder(sku, 1)} disabled={inventory[sku] <= 0} style={{ opacity: inventory[sku] <= 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                <ShoppingCart size={18} /> Purchase 1
-                            </button>
-                            <button className="btn-action btn-flash" onClick={() => handleOrder(sku, 15)} disabled={inventory[sku] <= 0} style={{ opacity: inventory[sku] <= 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                <Zap size={18} /> Bulk Order (15)
-                            </button>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-}
-
-// ROUTE 2: THE SECURE ADMIN DASHBOARD
-function AdminDashboard() {
-    const [inventory, setInventory] = useState({})
-    const [sales, setSales] = useState([])
-    const [predictions, setPredictions] = useState(() => {
-        const saved = localStorage.getItem('dashboard_predictions');
-        return saved ? JSON.parse(saved) : {};
-    });
-    const [chartData, setChartData] = useState(() => {
-        const saved = localStorage.getItem('dashboard_chart');
-        return saved ? JSON.parse(saved) : {};
-    });
-
-    const getTime = () => new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
+    // Keep inventory up-to-date via WebSocket
     useEffect(() => {
-        localStorage.setItem('dashboard_predictions', JSON.stringify(predictions));
-    }, [predictions]);
-
-    useEffect(() => {
-        localStorage.setItem('dashboard_chart', JSON.stringify(chartData));
-    }, [chartData]);
-
-    useEffect(() => {
-        const formatTime = (timestamp) => {
-            if (!timestamp) return getTime();
-            if (Array.isArray(timestamp)) {
-                const [year, month, day, hour, minute] = timestamp;
-                const d = new Date(year, month - 1, day, hour || 0, minute || 0);
-                return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            }
-            const d = new Date(timestamp);
-            return isNaN(d) ? getTime() : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        };
-
-        fetch('http://localhost:8082/api/inventory')
-            .then(res => res.json())
-            .then(data => {
-                const initialInv = {};
-                setChartData(prevChart => {
-                    const newChart = { ...prevChart };
-                    data.forEach(item => {
-                        initialInv[item.sku] = item.quantity;
-                        const history = newChart[item.sku] || [];
-                        newChart[item.sku] = [...history, { time: getTime(), stock: item.quantity }].slice(-15);
-                    });
-                    return newChart;
-                });
-                setInventory(initialInv);
-            });
-
-        fetch('http://localhost:8082/api/inventory/sales')
-            .then(res => res.json())
-            .then(data => {
-                const formattedSales = data.map(sale => ({
-                    sku: sale.sku,
-                    quantity: sale.quantitySold || sale.quantity || 'Sold',
-                    time: formatTime(sale.timestamp || sale.saleDate || sale.createdAt)
-                }));
-                setSales(formattedSales);
-            });
-
-        const stompClient = new Client({
+        const client = new Client({
             webSocketFactory: () => new SockJS('http://localhost:8082/ws'),
             debug: () => {},
             onConnect: () => {
-                stompClient.subscribe('/topic/inventory', (msg) => {
+                client.subscribe('/topic/inventory', msg => {
                     const item = JSON.parse(msg.body)
-                    setInventory(prev => ({ ...prev, [item.sku]: item.quantity }))
-                    setChartData(prev => ({ ...prev, [item.sku]: [...(prev[item.sku] || []), { time: getTime(), stock: item.quantity }].slice(-15) }));
-                    setSales(prev => [{ sku: item.sku, quantity: 'Stock Updated', time: getTime() }, ...prev].slice(0, 10));
-                });
-                stompClient.subscribe('/topic/ai-predictions', (msg) => {
-                    const event = JSON.parse(msg.body)
-                    setPredictions(prev => ({ ...prev, [event.sku]: event.ai_velocity }))
-                });
+                    setInventory(prev => prev.map(i => i.sku === item.sku ? { ...i, quantity: item.quantity } : i))
+                })
             }
-        });
+        })
+        client.activate()
+        return () => client.deactivate()
+    }, [])
 
-        stompClient.activate();
-        return () => stompClient.deactivate();
-    }, []);
+    const handleOrder = async (sku, qty) => {
+        try {
+            const res = await fetch(`http://localhost:8081/api/orders/place?sku=${sku}&quantity=${qty}`, { method: 'POST' })
+            if (res.ok) addToast(`Ordered ${qty}× ${sku}`, 'success')
+            else addToast('Order failed — service error', 'error')
+        } catch {
+            addToast('Order failed — cannot reach server', 'error')
+        }
+    }
 
     return (
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-            <div style={{ flex: 1, padding: '2.5rem', overflowY: 'auto' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
-                    <div>
-                        <h1 style={{ margin: '0 0 0.5rem 0', fontSize: '2.2rem', display: 'flex', alignItems: 'center', gap: '12px' }}><TrendingUp size={32} /> Real-Time Telemetry</h1>
-                        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '1.1rem' }}>Streaming inventory events and ML velocity predictions.</p>
+        <div className="page">
+            {/* Toast notifications */}
+            <div className="toast-stack">
+                {toasts.map(t => (
+                    <div key={t.id} className={`toast toast-${t.type}`}>{t.msg}</div>
+                ))}
+            </div>
+
+            <div className="page-header">
+                <div>
+                    <h1><ShoppingBag size={24} /> Point of Sale</h1>
+                    <p className="subtitle">Place orders against live inventory. Each order fires a Kafka event consumed by the ML forecasting service.</p>
+                </div>
+            </div>
+
+            <div className="product-grid">
+                {inventory.length === 0 && (
+                    <div className="empty-state">
+                        <RefreshCw size={32} className="spin" />
+                        <p>Connecting to inventory service...</p>
                     </div>
-                    <div className="glass-panel" style={{ padding: '1rem 2rem', display: 'flex', gap: '2rem' }}>
-                        <div style={{ textAlign: 'center' }}>
-                            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                                <Activity size={16} /> Kafka Event Stream
+                )}
+                {inventory.map(item => {
+                    const status = stockStatus(item.quantity)
+                    const outOfStock = item.quantity <= 0
+                    return (
+                        <div key={item.sku} className={`product-card ${outOfStock ? 'card-disabled' : ''}`}>
+                            <div className="product-card-header">
+                                <div>
+                                    <div className="product-name">{item.sku.split('-')[0]}</div>
+                                    <code className="sku-code">{item.sku}</code>
+                                </div>
+                                <span className={`badge ${status.cls}`}>
+                                    {status.icon} {status.label}
+                                </span>
                             </div>
-                            <div style={{ color: 'var(--accent-emerald)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <div style={{ width: '8px', height: '8px', background: 'var(--accent-emerald)', borderRadius: '50%', boxShadow: '0 0 10px var(--accent-emerald)' }}></div>
-                                Connected
+
+                            <div className="stock-display">
+                                <span className="stock-number" style={{ color: item.quantity < 20 ? 'var(--c-red)' : item.quantity < 50 ? 'var(--c-yellow)' : 'var(--c-green)' }}>
+                                    {item.quantity}
+                                </span>
+                                <span className="stock-label">units in stock</span>
+                            </div>
+
+                            <div className="product-actions">
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={() => handleOrder(item.sku, 1)}
+                                    disabled={outOfStock}
+                                >
+                                    <ShoppingCart size={15} /> Purchase 1
+                                </button>
+                                <button
+                                    className="btn btn-secondary"
+                                    onClick={() => handleOrder(item.sku, 10)}
+                                    disabled={outOfStock}
+                                >
+                                    <Zap size={15} /> Order 10
+                                </button>
                             </div>
                         </div>
-                    </div>
-                </div>
+                    )
+                })}
+            </div>
+        </div>
+    )
+}
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '2rem' }}>
-                    {Object.keys(inventory).length === 0 && (
-                        <div style={{ color: 'var(--text-muted)' }}>No telemetry data available.</div>
+// ─── Admin Dashboard ─────────────────────────────────────────────────────────
+
+function Dashboard() {
+    const [items, setItems]           = useState([])     // [{sku, quantity, aiVelocity}]
+    const [velocities, setVelocities] = useState({})     // sku -> velocity from WS
+    const [chartData, setChartData]   = useState({})     // sku -> [{time,stock}]
+    const [eventLog, setEventLog]     = useState([])
+    const [connected, setConnected]   = useState(false)
+    const [lastUpdate, setLastUpdate] = useState(null)
+
+    const chartRef = useRef({})
+
+    // Initial HTTP load
+    useEffect(() => {
+        fetch('http://localhost:8082/api/inventory')
+            .then(r => r.json())
+            .then(data => {
+                setItems(data)
+                const now = getTime()
+                const initial = {}
+                data.forEach(item => {
+                    initial[item.sku] = [{ time: now, stock: item.quantity }]
+                })
+                setChartData(initial)
+            })
+    }, [])
+
+    // WebSocket for real-time updates
+    useEffect(() => {
+        const client = new Client({
+            webSocketFactory: () => new SockJS('http://localhost:8082/ws'),
+            debug: () => {},
+            onConnect: () => {
+                setConnected(true)
+
+                client.subscribe('/topic/inventory', msg => {
+                    const item = JSON.parse(msg.body)
+                    const now = getTime()
+                    setLastUpdate(now)
+
+                    setItems(prev =>
+                        prev.map(i => i.sku === item.sku ? { ...i, quantity: item.quantity } : i)
+                    )
+                    setChartData(prev => ({
+                        ...prev,
+                        [item.sku]: [...(prev[item.sku] || []), { time: now, stock: item.quantity }].slice(-30)
+                    }))
+                    setEventLog(prev => [{
+                        sku: item.sku,
+                        type: 'ORDER',
+                        detail: `Stock → ${item.quantity}`,
+                        time: now
+                    }, ...prev].slice(0, 50))
+                })
+
+                client.subscribe('/topic/ai-predictions', msg => {
+                    const ev = JSON.parse(msg.body)
+                    setVelocities(prev => ({ ...prev, [ev.sku]: ev.ai_velocity }))
+                })
+            },
+            onDisconnect: () => setConnected(false),
+        })
+        client.activate()
+        return () => client.deactivate()
+    }, [])
+
+    // Summary stats
+    const totalUnits  = items.reduce((s, i) => s + (i.quantity || 0), 0)
+    const criticalCount = items.filter(i => i.quantity > 0 && i.quantity < 20).length
+    const outCount    = items.filter(i => i.quantity <= 0).length
+    const avgVelocity = Object.values(velocities).length
+        ? (Object.values(velocities).reduce((a, b) => a + b, 0) / Object.values(velocities).length)
+        : null
+
+    return (
+        <div className="page dashboard">
+            {/* ── Header ── */}
+            <div className="dash-header">
+                <div>
+                    <h1><TrendingUp size={24} /> Inventory Dashboard</h1>
+                    <p className="subtitle">
+                        Live telemetry via Kafka + WebSockets &nbsp;·&nbsp;
+                        ML velocity = units sold / elapsed minutes (5-min sliding window)
+                    </p>
+                </div>
+                <div className={`connection-pill ${connected ? 'conn-ok' : 'conn-err'}`}>
+                    <span className="conn-dot" />
+                    {connected ? 'Stream connected' : 'Disconnected'}
+                </div>
+            </div>
+
+            {/* ── Summary KPI bar ── */}
+            <div className="kpi-bar">
+                <div className="kpi-card">
+                    <div className="kpi-label">Total Units</div>
+                    <div className="kpi-value">{totalUnits.toLocaleString()}</div>
+                </div>
+                <div className="kpi-card">
+                    <div className="kpi-label">SKUs Tracked</div>
+                    <div className="kpi-value">{items.length}</div>
+                </div>
+                <div className="kpi-card kpi-warn">
+                    <div className="kpi-label">Low / Critical</div>
+                    <div className="kpi-value">{criticalCount}</div>
+                </div>
+                <div className="kpi-card kpi-danger">
+                    <div className="kpi-label">Out of Stock</div>
+                    <div className="kpi-value">{outCount}</div>
+                </div>
+                <div className="kpi-card kpi-info">
+                    <div className="kpi-label">Avg ML Velocity</div>
+                    <div className="kpi-value">{avgVelocity != null ? `${fmt(avgVelocity)} u/m` : '—'}</div>
+                </div>
+                {lastUpdate && (
+                    <div className="kpi-card">
+                        <div className="kpi-label">Last Event</div>
+                        <div className="kpi-value kpi-sm">{lastUpdate}</div>
+                    </div>
+                )}
+            </div>
+
+            <div className="dash-body">
+                {/* ── SKU cards grid ── */}
+                <div className="sku-grid">
+                    {items.length === 0 && (
+                        <div className="empty-state">
+                            <RefreshCw size={28} className="spin" />
+                            <p>Loading inventory...</p>
+                        </div>
                     )}
-                    
-                    {Object.keys(inventory).map(sku => {
-                        const isCritical = inventory[sku] < 30;
-                        const cardClass = isCritical ? 'dash-card critical pulse-critical' : 'dash-card healthy';
-                        const chartColor = isCritical ? '#f43f5e' : '#06b6d4';
-                        
+                    {items.map(item => {
+                        const vel   = velocities[item.sku]
+                        const qty   = item.quantity
+                        const status = stockStatus(qty)
+                        const isCrit = qty < 20
+                        const depMin = vel > 0 && qty > 0 ? qty / vel : null
+                        const chartColor = isCrit ? '#ef4444' : '#22d3ee'
+
                         return (
-                            <div key={sku} className={`glass-panel ${cardClass}`} style={{ padding: '1.5rem' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                            <div key={item.sku} className={`sku-card ${isCrit && qty > 0 ? 'sku-card-critical' : ''}`}>
+                                {/* Header row */}
+                                <div className="sku-card-top">
                                     <div>
-                                        <h3 style={{ margin: '0 0 5px 0', fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '8px' }}><Package size={18}/> {sku}</h3>
-                                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', letterSpacing: '1px' }}>UNITS AVAILABLE</div>
-                                    </div>
-                                    <h2 style={{ margin: 0, fontSize: '2.5rem', color: isCritical ? 'var(--accent-rose)' : 'var(--text-main)' }}>
-                                        {inventory[sku]}
-                                    </h2>
-                                </div>
-                                
-                                <div style={{ height: '120px', margin: '1rem -1.5rem', background: 'rgba(0,0,0,0.2)' }}>
-                                    {chartData[sku] && <InventoryChart data={chartData[sku]} color={chartColor} />}
-                                </div>
-                                
-                                <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '1rem', marginTop: 'auto' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                        <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}><Activity size={14}/> ML Velocity</span>
-                                        <strong style={{ color: 'var(--accent-cyan)' }}>{predictions[sku] !== undefined ? `${predictions[sku].toFixed(2)} units/m` : 'Calculating...'}</strong>
-                                    </div>
-                                    
-                                    {predictions[sku] !== undefined && inventory[sku] > 0 && (
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}><Clock size={14}/> Est. Depletion</span>
-                                            <strong style={{ color: isCritical ? 'var(--accent-rose)' : 'var(--accent-orange)' }}>
-                                                {predictions[sku] > 0 ? `${(inventory[sku] / predictions[sku]).toFixed(1)} mins` : 'Stable'}
-                                            </strong>
+                                        <div className="sku-card-name">
+                                            <Package size={15} /> {item.sku}
                                         </div>
-                                    )}
+                                        <span className={`badge ${status.cls}`}>{status.icon} {status.label}</span>
+                                    </div>
+                                    <div className="sku-qty" style={{ color: isCrit ? 'var(--c-red)' : 'var(--c-text)' }}>
+                                        {qty}
+                                    </div>
+                                </div>
+
+                                {/* Sparkline */}
+                                <div className="sku-sparkline">
+                                    {chartData[item.sku]?.length > 1
+                                        ? <Sparkline data={chartData[item.sku]} color={chartColor} />
+                                        : <div className="spark-placeholder">Waiting for events…</div>
+                                    }
+                                </div>
+
+                                {/* Metrics footer */}
+                                <div className="sku-metrics">
+                                    <div className="metric">
+                                        <span className="metric-label"><Activity size={12} /> ML Velocity</span>
+                                        <span className="metric-val" style={{ color: 'var(--c-cyan)' }}>
+                                            {vel !== undefined ? `${fmt(vel)} u/m` : <span className="muted">awaiting data</span>}
+                                        </span>
+                                    </div>
+                                    <div className="metric">
+                                        <span className="metric-label"><Clock size={12} /> Est. Depletion</span>
+                                        <span className="metric-val" style={{ color: isCrit ? 'var(--c-red)' : 'var(--c-orange)' }}>
+                                            {depMin != null
+                                                ? depMin < 1 ? `${(depMin * 60).toFixed(0)}s`
+                                                             : depMin < 60 ? `${depMin.toFixed(1)}m`
+                                                             : `${(depMin / 60).toFixed(1)}h`
+                                                : <span className="muted">{vel === 0 ? 'No sales yet' : 'Waiting for data'}</span>
+                                            }
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                         )
                     })}
                 </div>
-            </div>
-            
-            {/* Right Sidebar - Recent Activity */}
-            <div className="glass-panel" style={{ width: '380px', borderRight: 'none', borderTop: 'none', borderBottom: 'none', borderRadius: '0', padding: '2rem 0', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ padding: '0 2rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.4rem' }}>
-                        <Activity size={20} /> Event Log
-                    </h2>
-                </div>
-                
-                <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 0' }}>
-                    {sales.length === 0 && <div style={{ padding: '0 2rem', color: 'var(--text-muted)' }}>Awaiting Kafka events...</div>}
-                    {sales.map((sale, index) => (
-                        <div key={index} className="activity-item" style={{ padding: '1rem 2rem', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                <strong style={{ color: 'var(--text-main)', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Package size={14}/> {sale.sku}
-                                </strong>
-                                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{sale.time}</span>
+
+                {/* ── Event log sidebar ── */}
+                <div className="event-log">
+                    <div className="event-log-header">
+                        <Activity size={16} /> Event Log
+                        <span className="event-count">{eventLog.length}</span>
+                    </div>
+                    <div className="event-log-body">
+                        {eventLog.length === 0 && (
+                            <div className="empty-log">No events yet. Place orders from the Point of Sale.</div>
+                        )}
+                        {eventLog.map((ev, i) => (
+                            <div key={i} className="event-row">
+                                <div className="event-row-top">
+                                    <code className="event-sku">{ev.sku}</code>
+                                    <span className="event-time">{ev.time}</span>
+                                </div>
+                                <div className="event-detail">{ev.detail}</div>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '0.8rem', background: 'rgba(255,255,255,0.1)', color: '#cbd5e1' }}>
-                                    {sale.quantity === 'Stock Updated' ? 'SYSTEM' : 'TXN'}
-                                </span>
-                                <span style={{ color: sale.quantity === 'Stock Updated' ? 'var(--accent-cyan)' : 'var(--accent-emerald)', fontWeight: 'bold' }}>
-                                    {sale.quantity === 'Stock Updated' ? 'Autonomous Restock' : `Quantity: ${sale.quantity}`}
-                                </span>
-                            </div>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
             </div>
         </div>
-    );
+    )
 }
 
-// THE MAIN APP ORCHESTRATOR
+// ─── App Root ────────────────────────────────────────────────────────────────
+
 export default function App() {
     return (
         <BrowserRouter>
-            <div className="app-container">
+            <div className="app-shell">
                 <Navbar />
-                <Routes>
-                    <Route path="/" element={<CustomerStore />} />
-                    <Route path="/admin" element={<AdminDashboard />} />
-                </Routes>
+                <main className="app-main">
+                    <Routes>
+                        <Route path="/"      element={<PointOfSale />} />
+                        <Route path="/admin" element={<Dashboard />}   />
+                    </Routes>
+                </main>
             </div>
         </BrowserRouter>
-    );
+    )
 }

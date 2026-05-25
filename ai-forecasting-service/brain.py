@@ -1,9 +1,16 @@
 """
 AI Forecasting Service — Predictive Sales Velocity Engine
 
-Consumes order events from Kafka, trains a per-SKU linear regression model
-on cumulative sales over time, and publishes velocity predictions (units/min)
-back to Kafka for the Inventory Service to act on.
+Consumes *new* order events from Kafka (starting from the end of the log),
+records each event with the current wall-clock time, and publishes per-SKU
+velocity predictions (units/minute) back to Kafka.
+
+Algorithm: sliding-window rate calculation.
+  - Keeps a deque of (wall_clock_seconds, quantity) for each SKU.
+  - Only events within the last WINDOW_SECONDS are considered.
+  - velocity = total_units_in_window / elapsed_minutes.
+  - Handles burst orders gracefully (treats all events in a burst as
+    spread over a minimum of 1 second to avoid divide-by-zero).
 """
 
 import json
@@ -11,18 +18,17 @@ import logging
 import os
 import sys
 import time
+from collections import defaultdict, deque
 
-import pandas as pd
-from confluent_kafka import Consumer, Producer, KafkaError
-from sklearn.linear_model import LinearRegression
+from confluent_kafka import Consumer, Producer, KafkaError, TopicPartition, OFFSET_END
 
 # ── Configuration ──────────────────────────────────────────────
 
-KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:29092")
-CONSUMER_GROUP = os.getenv("CONSUMER_GROUP", "ai-ml-group")
-INPUT_TOPIC = "order-events"
-OUTPUT_TOPIC = "smart-ai-predictions"
-MIN_DATA_POINTS = 3
+KAFKA_BROKER      = os.getenv("KAFKA_BROKER", "localhost:29092")
+CONSUMER_GROUP    = os.getenv("CONSUMER_GROUP", "ai-ml-group-v4")
+INPUT_TOPIC       = "order-events"
+OUTPUT_TOPIC      = "smart-ai-predictions"
+WINDOW_SECONDS    = int(os.getenv("VELOCITY_WINDOW_SECONDS", "300"))  # 5 minutes
 
 # ── Logging ────────────────────────────────────────────────────
 
@@ -38,48 +44,73 @@ log = logging.getLogger("ai-forecasting")
 consumer = Consumer({
     "bootstrap.servers": KAFKA_BROKER,
     "group.id": CONSUMER_GROUP,
-    "auto.offset.reset": "earliest",
+    # Don't use auto.offset.reset here — we assign manually below
 })
 producer = Producer({"bootstrap.servers": KAFKA_BROKER})
 
-consumer.subscribe([INPUT_TOPIC])
+# Seek to end of every partition so we only process events that arrive
+# AFTER this process starts. This avoids replaying old bursts of orders
+# that were placed within the same second (which would distort velocity).
+def seek_to_end(kafka_consumer: Consumer, topic: str) -> None:
+    meta = kafka_consumer.list_topics(topic, timeout=10)
+    partitions = [
+        TopicPartition(topic, p)
+        for p in meta.topics[topic].partitions
+    ]
+    kafka_consumer.assign(partitions)
+    # poll once to trigger assignment, then seek each partition to end
+    kafka_consumer.poll(timeout=0)
+    for tp in partitions:
+        # get high watermark (end offset)
+        low, high = kafka_consumer.get_watermark_offsets(tp, timeout=5)
+        tp.offset = high
+    kafka_consumer.assign(partitions)   # re-assign with explicit offsets
+    for tp in partitions:
+        kafka_consumer.seek(tp)
+    log.info("Seeked to end of %s (partitions: %d)", topic, len(partitions))
+
+
+seek_to_end(consumer, INPUT_TOPIC)
 
 # ── Per-SKU State ──────────────────────────────────────────────
 
-
-class SkuTracker:
-    """Tracks cumulative sales and timestamps for a single SKU."""
-
-    def __init__(self):
-        self.data_points = []
-        self.cumulative_sales = 0
-        self.start_time = time.time()
-
-    def record_sale(self, quantity: int) -> None:
-        elapsed = max(1, int(time.time() - self.start_time))
-        self.cumulative_sales += quantity
-        self.data_points.append([elapsed, self.cumulative_sales])
-
-    def predict_velocity(self) -> float | None:
-        """Returns predicted sales per minute, or None if insufficient data."""
-        if len(self.data_points) < MIN_DATA_POINTS:
-            return None
-
-        df = pd.DataFrame(self.data_points, columns=["SecondsElapsed", "TotalSold"])
-        model = LinearRegression()
-        model.fit(df[["SecondsElapsed"]], df["TotalSold"])
-
-        return round(float(model.coef_[0] * 60), 2)
+# Maps sku -> deque of (wall_clock_time_seconds, quantity)
+sku_events: dict[str, deque] = defaultdict(lambda: deque())
+sku_totals: dict[str, int]   = defaultdict(int)
+sku_first_seen: dict[str, float] = {}
 
 
-sku_trackers: dict[str, SkuTracker] = {}
+def compute_velocity(sku: str) -> float:
+    events = sku_events[sku]
+    if not events:
+        return 0.0
+
+    now = time.time()
+    cutoff = now - WINDOW_SECONDS
+
+    # Drop events outside the sliding window
+    while events and events[0][0] < cutoff:
+        events.popleft()
+
+    if not events:
+        # Fall back to all-time average
+        age_minutes = max((now - sku_first_seen.get(sku, now)) / 60.0, 1 / 60.0)
+        return round(sku_totals[sku] / age_minutes, 4)
+
+    units = sum(q for _, q in events)
+    # Elapsed = now - time of oldest event in window; min 1s to handle bursts
+    elapsed_minutes = max((now - events[0][0]) / 60.0, 1 / 60.0)
+    return round(units / elapsed_minutes, 4)
+
 
 # ── Main Loop ──────────────────────────────────────────────────
 
 
 def run():
-    log.info("AI Forecasting Service starting | broker=%s | topics=%s→%s",
-             KAFKA_BROKER, INPUT_TOPIC, OUTPUT_TOPIC)
+    log.info(
+        "AI Forecasting Service ready | broker=%s | window=%ds | listening on %s",
+        KAFKA_BROKER, WINDOW_SECONDS, INPUT_TOPIC,
+    )
 
     try:
         while True:
@@ -106,26 +137,34 @@ def run():
                 log.warning("Skipping invalid event: %s", event)
                 continue
 
-            # Get or create per-SKU tracker
-            if sku not in sku_trackers:
-                sku_trackers[sku] = SkuTracker()
-                log.info("New SKU detected: %s", sku)
+            qty = int(qty)
+            now = time.time()
 
-            tracker = sku_trackers[sku]
-            tracker.record_sale(int(qty))
+            if sku not in sku_first_seen:
+                sku_first_seen[sku] = now
+                log.info("New SKU observed: %s", sku)
 
-            velocity = tracker.predict_velocity()
-            if velocity is not None:
-                prediction = {"sku": sku, "ai_velocity": velocity}
+            sku_events[sku].append((now, qty))
+            sku_totals[sku] += qty
 
-                producer.produce(
-                    OUTPUT_TOPIC,
-                    value=json.dumps(prediction).encode("utf-8"),
-                )
-                producer.flush()
+            velocity = compute_velocity(sku)
+            prediction = {
+                "sku": sku,
+                "ai_velocity": velocity,
+                "total_sold": sku_totals[sku],
+                "window_seconds": WINDOW_SECONDS,
+            }
 
-                log.info("Prediction: sku=%s velocity=%.2f units/min (data_points=%d)",
-                         sku, velocity, len(tracker.data_points))
+            producer.produce(
+                OUTPUT_TOPIC,
+                value=json.dumps(prediction).encode("utf-8"),
+            )
+            producer.flush()
+
+            log.info(
+                "Prediction: sku=%-20s velocity=%8.2f u/m  total_sold=%d",
+                sku, velocity, sku_totals[sku],
+            )
 
     except KeyboardInterrupt:
         log.info("Shutting down AI Forecasting Service")
