@@ -3,9 +3,10 @@ import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-do
 import SockJS from 'sockjs-client'
 import { Client } from '@stomp/stompjs'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { Activity, LayoutDashboard, ShoppingCart, TrendingUp, Package, Server, AlertCircle, ShoppingBag, Zap, Clock } from 'lucide-react'
 import './index.css'
 
-// 🛡️ SUB-COMPONENT: The Chart (Upgraded to AreaChart with Gradient)
+// SUB-COMPONENT: The Chart
 const InventoryChart = memo(({ data, color }) => {
     return (
         <ResponsiveContainer width="100%" height={100}>
@@ -34,30 +35,30 @@ const InventoryChart = memo(({ data, color }) => {
     );
 });
 
-// 🧭 SUB-COMPONENT: The Navigation Bar
+// SUB-COMPONENT: The Navigation Bar
 function Navbar() {
     const location = useLocation();
 
     return (
         <div className="glass-nav" style={{ padding: '1rem 2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', zIndex: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <div style={{ width: '40px', height: '40px', background: 'linear-gradient(135deg, var(--accent-cyan), var(--accent-purple))', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', boxShadow: 'var(--gradient-glow-cyan)' }}>
-                    🏢
+                <div style={{ width: '40px', height: '40px', background: 'linear-gradient(135deg, var(--accent-cyan), var(--accent-purple))', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', boxShadow: 'var(--gradient-glow-cyan)' }}>
+                    <Server size={22} />
                 </div>
-                <h2 style={{ margin: 0, background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                    TechCorp Inc.
+                <h2 style={{ margin: 0, background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: '1.25rem', letterSpacing: '1px' }}>
+                    NEXUS INVENTORY
                 </h2>
             </div>
             
             <div style={{ display: 'flex', gap: '1rem' }}>
                 <Link to="/" style={{ textDecoration: 'none' }}>
-                    <button className={`nav-btn ${location.pathname === '/' ? 'active-cyan' : ''}`}>
-                        <span style={{ marginRight: '8px' }}>🛍️</span> Customer Store
+                    <button className={`nav-btn ${location.pathname === '/' ? 'active-cyan' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <ShoppingCart size={18} /> Point of Sale
                     </button>
                 </Link>
                 <Link to="/admin" style={{ textDecoration: 'none' }}>
-                    <button className={`nav-btn ${location.pathname === '/admin' ? 'active-orange' : ''}`}>
-                        <span style={{ marginRight: '8px' }}>⚡</span> AI Command Center
+                    <button className={`nav-btn ${location.pathname === '/admin' ? 'active-orange' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <LayoutDashboard size={18} /> Telemetry Dashboard
                     </button>
                 </Link>
             </div>
@@ -65,7 +66,7 @@ function Navbar() {
     );
 }
 
-// 🛍️ ROUTE 1: THE CUSTOMER STOREFRONT
+// ROUTE 1: THE CUSTOMER STOREFRONT
 function CustomerStore() {
     const [inventory, setInventory] = useState({});
 
@@ -89,9 +90,11 @@ function CustomerStore() {
 
     return (
         <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '3rem' }}>
-            <div style={{ textAlign: 'center', padding: '4rem 2rem 2rem' }}>
-                <h1 style={{ fontSize: '3rem', margin: '0 0 1rem 0', textShadow: '0 0 30px rgba(255,255,255,0.2)' }}>Welcome to TechCorp Store</h1>
-                <p style={{ color: 'var(--text-muted)', fontSize: '1.2rem', maxWidth: '600px', margin: '0 auto' }}>Experience lightning-fast purchases powered by our predictive AI backend.</p>
+            <div style={{ padding: '3rem 2rem 1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
+                <h1 style={{ fontSize: '2rem', margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <ShoppingBag /> Retail Simulation Environment
+                </h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem', margin: '0' }}>Generate synthetic orders to test predictive restocking capabilities.</p>
             </div>
 
             <div className="store-grid">
@@ -109,7 +112,7 @@ function CustomerStore() {
                                 <span className="sku-badge">{sku}</span>
                             </div>
                             <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>In Stock</div>
+                                <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Current Stock</div>
                                 <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: inventory[sku] > 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
                                     {inventory[sku]}
                                 </div>
@@ -117,11 +120,11 @@ function CustomerStore() {
                         </div>
                         
                         <div style={{ display: 'flex', gap: '1rem', marginTop: 'auto' }}>
-                            <button className="btn-action btn-buy" onClick={() => handleOrder(sku, 1)} disabled={inventory[sku] <= 0} style={{ opacity: inventory[sku] <= 0 ? 0.5 : 1 }}>
-                                Buy 1 Unit
+                            <button className="btn-action btn-buy" onClick={() => handleOrder(sku, 1)} disabled={inventory[sku] <= 0} style={{ opacity: inventory[sku] <= 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                <ShoppingCart size={18} /> Purchase 1
                             </button>
-                            <button className="btn-action btn-flash" onClick={() => handleOrder(sku, 15)} disabled={inventory[sku] <= 0} style={{ opacity: inventory[sku] <= 0 ? 0.5 : 1 }}>
-                                Flash Sale! (15)
+                            <button className="btn-action btn-flash" onClick={() => handleOrder(sku, 15)} disabled={inventory[sku] <= 0} style={{ opacity: inventory[sku] <= 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                <Zap size={18} /> Bulk Order (15)
                             </button>
                         </div>
                     </div>
@@ -131,7 +134,7 @@ function CustomerStore() {
     );
 }
 
-// 📊 ROUTE 2: THE SECURE ADMIN DASHBOARD
+// ROUTE 2: THE SECURE ADMIN DASHBOARD
 function AdminDashboard() {
     const [inventory, setInventory] = useState({})
     const [sales, setSales] = useState([])
@@ -219,15 +222,17 @@ function AdminDashboard() {
             <div style={{ flex: 1, padding: '2.5rem', overflowY: 'auto' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
                     <div>
-                        <h1 style={{ margin: '0 0 0.5rem 0', fontSize: '2.5rem' }}>AI Command Center</h1>
-                        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '1.1rem' }}>Real-time telemetry and predictive restocking</p>
+                        <h1 style={{ margin: '0 0 0.5rem 0', fontSize: '2.2rem', display: 'flex', alignItems: 'center', gap: '12px' }}><TrendingUp size={32} /> Real-Time Telemetry</h1>
+                        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '1.1rem' }}>Streaming inventory events and ML velocity predictions.</p>
                     </div>
                     <div className="glass-panel" style={{ padding: '1rem 2rem', display: 'flex', gap: '2rem' }}>
                         <div style={{ textAlign: 'center' }}>
-                            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '5px' }}>System Status</div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                <Activity size={16} /> Kafka Event Stream
+                            </div>
                             <div style={{ color: 'var(--accent-emerald)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <div style={{ width: '8px', height: '8px', background: 'var(--accent-emerald)', borderRadius: '50%', boxShadow: '0 0 10px var(--accent-emerald)' }}></div>
-                                Online & Listening
+                                Connected
                             </div>
                         </div>
                     </div>
@@ -247,8 +252,8 @@ function AdminDashboard() {
                             <div key={sku} className={`glass-panel ${cardClass}`} style={{ padding: '1.5rem' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                                     <div>
-                                        <h3 style={{ margin: '0 0 5px 0', fontSize: '1.3rem' }}>{sku}</h3>
-                                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', letterSpacing: '1px' }}>LIVE TELEMETRY</div>
+                                        <h3 style={{ margin: '0 0 5px 0', fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '8px' }}><Package size={18}/> {sku}</h3>
+                                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', letterSpacing: '1px' }}>UNITS AVAILABLE</div>
                                     </div>
                                     <h2 style={{ margin: 0, fontSize: '2.5rem', color: isCritical ? 'var(--accent-rose)' : 'var(--text-main)' }}>
                                         {inventory[sku]}
@@ -261,13 +266,13 @@ function AdminDashboard() {
                                 
                                 <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '1rem', marginTop: 'auto' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                        <span style={{ color: 'var(--text-muted)' }}>AI Velocity</span>
-                                        <strong style={{ color: 'var(--accent-cyan)' }}>{predictions[sku] ? `${predictions[sku].toFixed(2)} u/min` : 'Calibrating...'}</strong>
+                                        <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}><Activity size={14}/> ML Velocity</span>
+                                        <strong style={{ color: 'var(--accent-cyan)' }}>{predictions[sku] ? `${predictions[sku].toFixed(2)} units/m` : 'Calculating...'}</strong>
                                     </div>
                                     
                                     {predictions[sku] && inventory[sku] > 0 && (
                                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: 'var(--text-muted)' }}>Predicted Depletion</span>
+                                            <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}><Clock size={14}/> Est. Depletion</span>
                                             <strong style={{ color: isCritical ? 'var(--accent-rose)' : 'var(--accent-orange)' }}>
                                                 {(inventory[sku] / predictions[sku]).toFixed(1)} mins
                                             </strong>
@@ -283,25 +288,27 @@ function AdminDashboard() {
             {/* Right Sidebar - Recent Activity */}
             <div className="glass-panel" style={{ width: '380px', borderRight: 'none', borderTop: 'none', borderBottom: 'none', borderRadius: '0', padding: '2rem 0', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ padding: '0 2rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span>⚡</span> Live Activity
+                    <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.4rem' }}>
+                        <Activity size={20} /> Event Log
                     </h2>
                 </div>
                 
                 <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 0' }}>
-                    {sales.length === 0 && <div style={{ padding: '0 2rem', color: 'var(--text-muted)' }}>Waiting for events...</div>}
+                    {sales.length === 0 && <div style={{ padding: '0 2rem', color: 'var(--text-muted)' }}>Awaiting Kafka events...</div>}
                     {sales.map((sale, index) => (
                         <div key={index} className="activity-item" style={{ padding: '1rem 2rem', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                <strong style={{ color: 'var(--text-main)', letterSpacing: '0.5px' }}>{sale.sku}</strong>
+                                <strong style={{ color: 'var(--text-main)', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Package size={14}/> {sale.sku}
+                                </strong>
                                 <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{sale.time}</span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '0.8rem', background: 'rgba(255,255,255,0.1)', color: '#cbd5e1' }}>
-                                    {sale.quantity === 'Stock Updated' ? 'SYSTEM' : 'CUSTOMER'}
+                                    {sale.quantity === 'Stock Updated' ? 'SYSTEM' : 'TXN'}
                                 </span>
                                 <span style={{ color: sale.quantity === 'Stock Updated' ? 'var(--accent-cyan)' : 'var(--accent-emerald)', fontWeight: 'bold' }}>
-                                    {sale.quantity === 'Stock Updated' ? 'Stock Restocked/Updated' : `Purchased ${sale.quantity} units`}
+                                    {sale.quantity === 'Stock Updated' ? 'Autonomous Restock' : `Quantity: ${sale.quantity}`}
                                 </span>
                             </div>
                         </div>
@@ -312,7 +319,7 @@ function AdminDashboard() {
     );
 }
 
-// 🌐 THE MAIN APP ORCHESTRATOR
+// THE MAIN APP ORCHESTRATOR
 export default function App() {
     return (
         <BrowserRouter>
