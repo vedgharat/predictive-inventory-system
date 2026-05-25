@@ -38,13 +38,12 @@ public class AIPredictionListener {
     public AIPredictionListener(InventoryService inventoryService,
                                 InventoryRepository inventoryRepository,
                                 SimpMessagingTemplate messagingTemplate,
-                                KafkaTemplate<String, String> kafkaTemplate,
-                                ObjectMapper objectMapper) {
+                                KafkaTemplate<String, String> kafkaTemplate) {
         this.inventoryService = inventoryService;
         this.inventoryRepository = inventoryRepository;
         this.messagingTemplate = messagingTemplate;
         this.kafkaTemplate = kafkaTemplate;
-        this.objectMapper = objectMapper;
+        this.objectMapper = new ObjectMapper();
     }
 
     @KafkaListener(topics = "smart-ai-predictions", groupId = "java-dashboard-group")

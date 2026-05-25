@@ -24,11 +24,10 @@ public class RestockListener {
     private final ObjectMapper objectMapper;
 
     public RestockListener(InventoryService inventoryService,
-                           SimpMessagingTemplate messagingTemplate,
-                           ObjectMapper objectMapper) {
+                           SimpMessagingTemplate messagingTemplate) {
         this.inventoryService = inventoryService;
         this.messagingTemplate = messagingTemplate;
-        this.objectMapper = objectMapper;
+        this.objectMapper = new ObjectMapper();
     }
 
     @KafkaListener(topics = "warehouse-restock", groupId = "restock-group")
