@@ -94,6 +94,7 @@ function Stars({ rating }) {
 function StorePage({ onCartChange }) {
     const [inventory, setInventory] = useState([])
     const [toasts, setToasts] = useState([])
+    // eslint-disable-next-line no-unused-vars
     const [cart, setCart] = useState({})
     const [filter, setFilter] = useState('All')
     const [wsConnected, setWsConnected] = useState(false)
