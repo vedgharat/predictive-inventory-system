@@ -1,63 +1,137 @@
-from confluent_kafka import Consumer, Producer
+"""
+AI Forecasting Service — Predictive Sales Velocity Engine
+
+Consumes order events from Kafka, trains a per-SKU linear regression model
+on cumulative sales over time, and publishes velocity predictions (units/min)
+back to Kafka for the Inventory Service to act on.
+"""
+
 import json
+import logging
+import os
+import sys
 import time
+
 import pandas as pd
+from confluent_kafka import Consumer, Producer, KafkaError
 from sklearn.linear_model import LinearRegression
 
-broker = 'localhost:29092'
-# Bumped to v7 to ensure clean read
-consumer = Consumer({'bootstrap.servers': broker, 'group.id': 'ai-ml-group-v7', 'auto.offset.reset': 'earliest'})
-producer = Producer({'bootstrap.servers': broker})
+# ── Configuration ──────────────────────────────────────────────
 
-consumer.subscribe(['order-events'])
+KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:29092")
+CONSUMER_GROUP = os.getenv("CONSUMER_GROUP", "ai-ml-group")
+INPUT_TOPIC = "order-events"
+OUTPUT_TOPIC = "smart-ai-predictions"
+MIN_DATA_POINTS = 3
 
-print("🤖 AI Machine Learning Service Booting Up...")
-print("Listening to 'order-events' and Broadcasting to 'smart-ai-predictions'...\n")
+# ── Logging ────────────────────────────────────────────────────
 
-data_store = []
-start_time = time.time()
-cumulative_sales = 0
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+log = logging.getLogger("ai-forecasting")
 
-try:
-    while True:
-        msg = consumer.poll(timeout=1.0)
-        if msg is None or msg.error():
-            continue
+# ── Kafka Clients ──────────────────────────────────────────────
 
-        event = json.loads(msg.value().decode('utf-8'))
-        sku = event.get('sku')
-        qty = event.get('quantity')
+consumer = Consumer({
+    "bootstrap.servers": KAFKA_BROKER,
+    "group.id": CONSUMER_GROUP,
+    "auto.offset.reset": "earliest",
+})
+producer = Producer({"bootstrap.servers": KAFKA_BROKER})
 
-        current_time_sec = int(time.time() - start_time)
-        if current_time_sec == 0:
-            current_time_sec = 1
+consumer.subscribe([INPUT_TOPIC])
 
-        cumulative_sales += qty
-        data_store.append([current_time_sec, cumulative_sales])
+# ── Per-SKU State ──────────────────────────────────────────────
 
-        if len(data_store) >= 3:
-            df = pd.DataFrame(data_store, columns=['SecondsElapsed', 'TotalSold'])
-            X = df[['SecondsElapsed']]
-            y = df['TotalSold']
 
-            model = LinearRegression()
-            model.fit(X, y)
+class SkuTracker:
+    """Tracks cumulative sales and timestamps for a single SKU."""
 
-            sales_per_minute = model.coef_[0] * 60
+    def __init__(self):
+        self.data_points = []
+        self.cumulative_sales = 0
+        self.start_time = time.time()
 
-            # Simple, clean JSON payload. No Spring Headers needed anymore!
-            prediction_payload = {
-                "sku": sku,
-                "ai_velocity": float(round(sales_per_minute, 2))
-            }
+    def record_sale(self, quantity: int) -> None:
+        elapsed = max(1, int(time.time() - self.start_time))
+        self.cumulative_sales += quantity
+        self.data_points.append([elapsed, self.cumulative_sales])
 
-            producer.produce('smart-ai-predictions', value=json.dumps(prediction_payload).encode('utf-8'))
-            producer.flush()
+    def predict_velocity(self) -> float | None:
+        """Returns predicted sales per minute, or None if insufficient data."""
+        if len(self.data_points) < MIN_DATA_POINTS:
+            return None
 
-            print(f"📡 BROADCASTED: {prediction_payload}")
-            print("-------------------------------------------------")
+        df = pd.DataFrame(self.data_points, columns=["SecondsElapsed", "TotalSold"])
+        model = LinearRegression()
+        model.fit(df[["SecondsElapsed"]], df["TotalSold"])
 
-except KeyboardInterrupt:
-    print("Shutting down AI service...")
-finally:
-    consumer.close()
+        return round(float(model.coef_[0] * 60), 2)
+
+
+sku_trackers: dict[str, SkuTracker] = {}
+
+# ── Main Loop ──────────────────────────────────────────────────
+
+
+def run():
+    log.info("AI Forecasting Service starting | broker=%s | topics=%s→%s",
+             KAFKA_BROKER, INPUT_TOPIC, OUTPUT_TOPIC)
+
+    try:
+        while True:
+            msg = consumer.poll(timeout=1.0)
+
+            if msg is None:
+                continue
+            if msg.error():
+                if msg.error().code() == KafkaError._PARTITION_EOF:
+                    continue
+                log.error("Kafka error: %s", msg.error())
+                continue
+
+            try:
+                event = json.loads(msg.value().decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                log.warning("Skipping unparseable message: %s", e)
+                continue
+
+            sku = event.get("sku")
+            qty = event.get("quantity")
+
+            if not sku or not isinstance(qty, (int, float)) or qty <= 0:
+                log.warning("Skipping invalid event: %s", event)
+                continue
+
+            # Get or create per-SKU tracker
+            if sku not in sku_trackers:
+                sku_trackers[sku] = SkuTracker()
+                log.info("New SKU detected: %s", sku)
+
+            tracker = sku_trackers[sku]
+            tracker.record_sale(int(qty))
+
+            velocity = tracker.predict_velocity()
+            if velocity is not None:
+                prediction = {"sku": sku, "ai_velocity": velocity}
+
+                producer.produce(
+                    OUTPUT_TOPIC,
+                    value=json.dumps(prediction).encode("utf-8"),
+                )
+                producer.flush()
+
+                log.info("Prediction: sku=%s velocity=%.2f units/min (data_points=%d)",
+                         sku, velocity, len(tracker.data_points))
+
+    except KeyboardInterrupt:
+        log.info("Shutting down AI Forecasting Service")
+    finally:
+        consumer.close()
+
+
+if __name__ == "__main__":
+    run()
