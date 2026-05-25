@@ -2,37 +2,62 @@ import { useState, useEffect, memo } from 'react'
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom'
 import SockJS from 'sockjs-client'
 import { Client } from '@stomp/stompjs'
-import { LineChart, Line, XAxis, YAxis, Tooltip } from 'recharts'
-import './App.css'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import './index.css'
 
-// 🛡️ SUB-COMPONENT: The Chart
+// 🛡️ SUB-COMPONENT: The Chart (Upgraded to AreaChart with Gradient)
 const InventoryChart = memo(({ data, color }) => {
     return (
-        <LineChart width={260} height={100} data={data}>
-            <XAxis dataKey="time" hide />
-            <YAxis domain={['auto', 'auto']} hide />
-            <Tooltip contentStyle={{ borderRadius: '8px', color: 'black', fontSize: '12px' }} />
-            <Line type="monotone" dataKey="stock" stroke={color} strokeWidth={3} dot={false} isAnimationActive={false} />
-        </LineChart>
+        <ResponsiveContainer width="100%" height={100}>
+            <AreaChart data={data} margin={{ top: 5, right: 0, left: 0, bottom: 5 }}>
+                <defs>
+                    <linearGradient id={`colorUv-${color.replace('#','')}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={color} stopOpacity={0.4}/>
+                        <stop offset="95%" stopColor={color} stopOpacity={0}/>
+                    </linearGradient>
+                </defs>
+                <XAxis dataKey="time" hide />
+                <YAxis domain={['auto', 'auto']} hide />
+                <Tooltip 
+                    contentStyle={{ 
+                        background: 'rgba(15, 23, 42, 0.9)', 
+                        border: '1px solid rgba(255,255,255,0.1)', 
+                        borderRadius: '8px', 
+                        color: 'white', 
+                        boxShadow: '0 4px 15px rgba(0,0,0,0.5)'
+                    }} 
+                    itemStyle={{ color: 'white', fontWeight: 'bold' }}
+                />
+                <Area type="monotone" dataKey="stock" stroke={color} strokeWidth={3} fillOpacity={1} fill={`url(#colorUv-${color.replace('#','')})`} isAnimationActive={false} />
+            </AreaChart>
+        </ResponsiveContainer>
     );
 });
 
 // 🧭 SUB-COMPONENT: The Navigation Bar
 function Navbar() {
-    const location = useLocation(); // Knows which URL we are currently on
+    const location = useLocation();
 
     return (
-        <div style={{ background: '#2c3e50', padding: '1rem 2rem', display: 'flex', alignItems: 'center', gap: '2rem', color: 'white', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', zIndex: 10 }}>
-            <h2 style={{ margin: 0, letterSpacing: '1px' }}>🏢 TechCorp Inc.</h2>
+        <div className="glass-nav" style={{ padding: '1rem 2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', zIndex: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div style={{ width: '40px', height: '40px', background: 'linear-gradient(135deg, var(--accent-cyan), var(--accent-purple))', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', boxShadow: 'var(--gradient-glow-cyan)' }}>
+                    🏢
+                </div>
+                <h2 style={{ margin: 0, background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                    TechCorp Inc.
+                </h2>
+            </div>
+            
             <div style={{ display: 'flex', gap: '1rem' }}>
                 <Link to="/" style={{ textDecoration: 'none' }}>
-                    <button style={{ padding: '8px 16px', cursor: 'pointer', background: location.pathname === '/' ? '#3498db' : 'transparent', border: '1px solid #3498db', color: 'white', borderRadius: '4px', fontWeight: 'bold' }}>
-                        🛍️ Customer Store
+                    <button className={`nav-btn ${location.pathname === '/' ? 'active-cyan' : ''}`}>
+                        <span style={{ marginRight: '8px' }}>🛍️</span> Customer Store
                     </button>
                 </Link>
                 <Link to="/admin" style={{ textDecoration: 'none' }}>
-                    <button style={{ padding: '8px 16px', cursor: 'pointer', background: location.pathname === '/admin' ? '#e67e22' : 'transparent', border: '1px solid #e67e22', color: 'white', borderRadius: '4px', fontWeight: 'bold' }}>
-                        📊 Admin Dashboard
+                    <button className={`nav-btn ${location.pathname === '/admin' ? 'active-orange' : ''}`}>
+                        <span style={{ marginRight: '8px' }}>⚡</span> AI Command Center
                     </button>
                 </Link>
             </div>
@@ -40,11 +65,10 @@ function Navbar() {
     );
 }
 
-// 🛍️ ROUTE 1: THE CUSTOMER STOREFRONT (Lightweight, No WebSockets)
+// 🛍️ ROUTE 1: THE CUSTOMER STOREFRONT
 function CustomerStore() {
     const [inventory, setInventory] = useState({});
 
-    // Fetch initial items just to display the storefront
     useEffect(() => {
         fetch('http://localhost:8082/api/inventory')
             .then(res => res.json())
@@ -58,35 +82,56 @@ function CustomerStore() {
     const handleOrder = async (sku, quantity) => {
         try {
             await fetch(`http://localhost:8081/api/orders/place?sku=${sku}&quantity=${quantity}`, { method: 'POST' });
-            // In a real app, we'd show a "Success!" toast notification here
         } catch (err) {
             console.error("Order failed:", err);
         }
     };
 
     return (
-        <div style={{ padding: '3rem', display: 'flex', gap: '2rem', flexWrap: 'wrap', justifyContent: 'center', background: '#f4f7f6', minHeight: '100vh' }}>
-            {Object.keys(inventory).map(sku => (
-                <div key={sku} style={{ background: 'white', padding: '2rem', borderRadius: '12px', width: '250px', textAlign: 'center', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', height: 'fit-content' }}>
-                    <h2 style={{ color: '#2c3e50', margin: '0 0 1rem 0' }}>{sku}</h2>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '1.5rem' }}>
-                        <button onClick={() => handleOrder(sku, 1)} style={{ padding: '10px', background: '#3498db', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
-                            Buy 1
-                        </button>
-                        <button onClick={() => handleOrder(sku, 5)} style={{ padding: '10px', background: '#2980b9', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
-                            Buy 5
-                        </button>
-                        <button onClick={() => handleOrder(sku, 15)} style={{ padding: '10px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
-                            Flash Sale! (Buy 15)
-                        </button>
+        <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '3rem' }}>
+            <div style={{ textAlign: 'center', padding: '4rem 2rem 2rem' }}>
+                <h1 style={{ fontSize: '3rem', margin: '0 0 1rem 0', textShadow: '0 0 30px rgba(255,255,255,0.2)' }}>Welcome to TechCorp Store</h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: '1.2rem', maxWidth: '600px', margin: '0 auto' }}>Experience lightning-fast purchases powered by our predictive AI backend.</p>
+            </div>
+
+            <div className="store-grid">
+                {Object.keys(inventory).length === 0 && (
+                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                        <h3>No items in inventory. Check database connection.</h3>
                     </div>
-                </div>
-            ))}
+                )}
+                
+                {Object.keys(inventory).map(sku => (
+                    <div key={sku} className="glass-panel product-card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                                <h2 style={{ margin: '0 0 0.5rem 0', fontSize: '1.5rem' }}>{sku.split('-')[0]}</h2>
+                                <span className="sku-badge">{sku}</span>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                                <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>In Stock</div>
+                                <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: inventory[sku] > 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                                    {inventory[sku]}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div style={{ display: 'flex', gap: '1rem', marginTop: 'auto' }}>
+                            <button className="btn-action btn-buy" onClick={() => handleOrder(sku, 1)} disabled={inventory[sku] <= 0} style={{ opacity: inventory[sku] <= 0 ? 0.5 : 1 }}>
+                                Buy 1 Unit
+                            </button>
+                            <button className="btn-action btn-flash" onClick={() => handleOrder(sku, 15)} disabled={inventory[sku] <= 0} style={{ opacity: inventory[sku] <= 0 ? 0.5 : 1 }}>
+                                Flash Sale! (15)
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
         </div>
     );
 }
 
-// 📊 ROUTE 2: THE SECURE ADMIN DASHBOARD (Heavy WebSockets & Charts)
+// 📊 ROUTE 2: THE SECURE ADMIN DASHBOARD
 function AdminDashboard() {
     const [inventory, setInventory] = useState({})
     const [sales, setSales] = useState([])
@@ -170,41 +215,95 @@ function AdminDashboard() {
     }, []);
 
     return (
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', background: '#f4f7f6', minHeight: 'calc(100vh - 70px)' }}>
-            <div style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
-                <h1 style={{ color: '#2c3e50', marginTop: 0 }}>🚀 AI Command Center</h1>
-                <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginTop: '2rem' }}>
-                    {Object.keys(inventory).map(sku => (
-                        <div key={sku} style={{ background: 'white', padding: '1.5rem', borderRadius: '12px', width: '280px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)' }}>
-                            <h3 style={{ margin: 0, color: '#7f8c8d' }}>{sku}</h3>
-                            <h2 style={{ fontSize: '2rem', margin: '10px 0', color: inventory[sku] < 20 ? '#e74c3c' : '#2ecc71' }}>
-                                {inventory[sku]} <span style={{ fontSize: '1rem', color: '#bdc3c7' }}>units</span>
-                            </h2>
-                            <div style={{ height: '100px', display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '10px' }}>
-                                {chartData[sku] && <InventoryChart data={chartData[sku]} color={inventory[sku] < 20 ? '#e74c3c' : '#3498db'} />}
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+            <div style={{ flex: 1, padding: '2.5rem', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
+                    <div>
+                        <h1 style={{ margin: '0 0 0.5rem 0', fontSize: '2.5rem' }}>AI Command Center</h1>
+                        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '1.1rem' }}>Real-time telemetry and predictive restocking</p>
+                    </div>
+                    <div className="glass-panel" style={{ padding: '1rem 2rem', display: 'flex', gap: '2rem' }}>
+                        <div style={{ textAlign: 'center' }}>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '5px' }}>System Status</div>
+                            <div style={{ color: 'var(--accent-emerald)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ width: '8px', height: '8px', background: 'var(--accent-emerald)', borderRadius: '50%', boxShadow: '0 0 10px var(--accent-emerald)' }}></div>
+                                Online & Listening
                             </div>
-                            <p style={{ margin: '0', borderTop: '1px solid #eee', paddingTop: '10px', fontSize: '0.9rem', color: '#555' }}>
-                                <strong>AI Velocity:</strong> {predictions[sku] || '...'} units/min
-                            </p>
-                            {predictions[sku] && inventory[sku] > 0 && (
-                                <p style={{ margin: '5px 0 0 0', fontSize: '0.9rem', color: '#e67e22', fontWeight: 'bold' }}>
-                                    ⏳ Depletes in: {(inventory[sku] / predictions[sku]).toFixed(1)} mins
-                                </p>
-                            )}
                         </div>
-                    ))}
+                    </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '2rem' }}>
+                    {Object.keys(inventory).length === 0 && (
+                        <div style={{ color: 'var(--text-muted)' }}>No telemetry data available.</div>
+                    )}
+                    
+                    {Object.keys(inventory).map(sku => {
+                        const isCritical = inventory[sku] < 30;
+                        const cardClass = isCritical ? 'dash-card critical pulse-critical' : 'dash-card healthy';
+                        const chartColor = isCritical ? '#f43f5e' : '#06b6d4';
+                        
+                        return (
+                            <div key={sku} className={`glass-panel ${cardClass}`} style={{ padding: '1.5rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                                    <div>
+                                        <h3 style={{ margin: '0 0 5px 0', fontSize: '1.3rem' }}>{sku}</h3>
+                                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', letterSpacing: '1px' }}>LIVE TELEMETRY</div>
+                                    </div>
+                                    <h2 style={{ margin: 0, fontSize: '2.5rem', color: isCritical ? 'var(--accent-rose)' : 'var(--text-main)' }}>
+                                        {inventory[sku]}
+                                    </h2>
+                                </div>
+                                
+                                <div style={{ height: '120px', margin: '1rem -1.5rem', background: 'rgba(0,0,0,0.2)' }}>
+                                    {chartData[sku] && <InventoryChart data={chartData[sku]} color={chartColor} />}
+                                </div>
+                                
+                                <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '1rem', marginTop: 'auto' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <span style={{ color: 'var(--text-muted)' }}>AI Velocity</span>
+                                        <strong style={{ color: 'var(--accent-cyan)' }}>{predictions[sku] ? `${predictions[sku].toFixed(2)} u/min` : 'Calibrating...'}</strong>
+                                    </div>
+                                    
+                                    {predictions[sku] && inventory[sku] > 0 && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <span style={{ color: 'var(--text-muted)' }}>Predicted Depletion</span>
+                                            <strong style={{ color: isCritical ? 'var(--accent-rose)' : 'var(--accent-orange)' }}>
+                                                {(inventory[sku] / predictions[sku]).toFixed(1)} mins
+                                            </strong>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )
+                    })}
                 </div>
             </div>
-            <div style={{ width: '320px', background: 'white', borderLeft: '1px solid #ddd', padding: '1.5rem', overflowY: 'auto', boxShadow: '-4px 0 15px rgba(0,0,0,0.03)' }}>
-                <h2 style={{ margin: '0 0 1rem 0', color: '#2c3e50', borderBottom: '2px solid #f4f7f6', paddingBottom: '15px' }}>🕒 Recent Activity</h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            
+            {/* Right Sidebar - Recent Activity */}
+            <div className="glass-panel" style={{ width: '380px', borderRight: 'none', borderTop: 'none', borderBottom: 'none', borderRadius: '0', padding: '2rem 0', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '0 2rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                    <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span>⚡</span> Live Activity
+                    </h2>
+                </div>
+                
+                <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 0' }}>
+                    {sales.length === 0 && <div style={{ padding: '0 2rem', color: 'var(--text-muted)' }}>Waiting for events...</div>}
                     {sales.map((sale, index) => (
-                        <div key={index} style={{ padding: '10px', background: '#f8f9fa', borderRadius: '8px', borderLeft: '4px solid #3498db' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
-                                <strong style={{ color: '#2c3e50' }}>{sale.sku}</strong>
-                                <span style={{ fontSize: '0.8rem', color: '#95a5a6' }}>{sale.time}</span>
+                        <div key={index} className="activity-item" style={{ padding: '1rem 2rem', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                <strong style={{ color: 'var(--text-main)', letterSpacing: '0.5px' }}>{sale.sku}</strong>
+                                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{sale.time}</span>
                             </div>
-                            <p style={{ margin: 0, fontSize: '0.9rem', color: '#7f8c8d' }}>Action: <span style={{ color: '#34495e', fontWeight: '500' }}>{sale.quantity}</span></p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '0.8rem', background: 'rgba(255,255,255,0.1)', color: '#cbd5e1' }}>
+                                    {sale.quantity === 'Stock Updated' ? 'SYSTEM' : 'CUSTOMER'}
+                                </span>
+                                <span style={{ color: sale.quantity === 'Stock Updated' ? 'var(--accent-cyan)' : 'var(--accent-emerald)', fontWeight: 'bold' }}>
+                                    {sale.quantity === 'Stock Updated' ? 'Stock Restocked/Updated' : `Purchased ${sale.quantity} units`}
+                                </span>
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -217,12 +316,10 @@ function AdminDashboard() {
 export default function App() {
     return (
         <BrowserRouter>
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', margin: 0, fontFamily: 'system-ui' }}>
+            <div className="app-container">
                 <Navbar />
                 <Routes>
-                    {/* The root URL loads the public store */}
                     <Route path="/" element={<CustomerStore />} />
-                    {/* The /admin URL loads the protected dashboard */}
                     <Route path="/admin" element={<AdminDashboard />} />
                 </Routes>
             </div>
