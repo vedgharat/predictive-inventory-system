@@ -110,3 +110,43 @@ jobs:
 
       - name: Build ai-forecasting-service image
         run: docker build -t predictive/ai-forecasting-service ./ai-forecasting-service
+
+  # ── Continuous Deployment (CD) ────────────────────────────
+  deploy:
+    name: Deploy to Always-Free Oracle Cloud VM
+    runs-on: ubuntu-latest
+    needs: [docker]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: SSH and Auto-Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.OCI_VM_IP }}
+          username: ${{ secrets.OCI_VM_USERNAME }}
+          key: ${{ secrets.OCI_VM_SSH_KEY }}
+          script: |
+            echo "--- Starting Continuous Deployment ---"
+            
+            # 1. Clone or update repository
+            if [ ! -d "$HOME/predictive-inventory-system" ]; then
+              echo "Cloning repository for the first time..."
+              git clone https://github.com/vedgharat/predictive-inventory-system.git "$HOME/predictive-inventory-system"
+            fi
+            
+            cd "$HOME/predictive-inventory-system"
+            
+            # 2. Pull the latest code changes
+            echo "Pulling latest code changes from branch main..."
+            git fetch --all
+            git reset --hard origin/main
+            
+            # 3. Make provisioning script executable and run it
+            echo "Running Oracle Cloud VM host provisioning..."
+            chmod +x setup-oracle-vm.sh
+            sudo ./setup-oracle-vm.sh
+            
+            # 4. Launch/Rebuild the containerized production stack
+            echo "Rebuilding and starting containerized services in background..."
+            docker compose up -d --build
+            
+            echo "--- Deployment Complete ---"
