@@ -267,14 +267,14 @@ function AdminDashboard() {
                                 <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '1rem', marginTop: 'auto' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                                         <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}><Activity size={14}/> ML Velocity</span>
-                                        <strong style={{ color: 'var(--accent-cyan)' }}>{predictions[sku] ? `${predictions[sku].toFixed(2)} units/m` : 'Calculating...'}</strong>
+                                        <strong style={{ color: 'var(--accent-cyan)' }}>{predictions[sku] !== undefined ? `${predictions[sku].toFixed(2)} units/m` : 'Calculating...'}</strong>
                                     </div>
                                     
-                                    {predictions[sku] && inventory[sku] > 0 && (
+                                    {predictions[sku] !== undefined && inventory[sku] > 0 && (
                                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                             <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}><Clock size={14}/> Est. Depletion</span>
                                             <strong style={{ color: isCritical ? 'var(--accent-rose)' : 'var(--accent-orange)' }}>
-                                                {(inventory[sku] / predictions[sku]).toFixed(1)} mins
+                                                {predictions[sku] > 0 ? `${(inventory[sku] / predictions[sku]).toFixed(1)} mins` : 'Stable'}
                                             </strong>
                                         </div>
                                     )}
