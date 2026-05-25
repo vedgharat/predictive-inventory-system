@@ -1,34 +1,40 @@
-import { useState, useEffect, useRef, memo } from 'react'
+import { useState, useEffect, memo } from 'react'
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom'
 import SockJS from 'sockjs-client'
 import { Client } from '@stomp/stompjs'
-import {
-    AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
-    BarChart, Bar, Cell
-} from 'recharts'
+import { AreaChart, Area, YAxis, ResponsiveContainer } from 'recharts'
 import {
     Activity, LayoutDashboard, ShoppingCart, TrendingUp,
-    Package, Server, ShoppingBag, Zap, Clock, AlertTriangle,
-    CheckCircle, XCircle, RefreshCw, ArrowUp, ArrowDown
+    Package, Server, Zap, Clock, AlertTriangle,
+    CheckCircle, XCircle, RefreshCw, Star, ShoppingBag
 } from 'lucide-react'
 import './index.css'
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Product catalogue (static metadata) ────────────────────────────────────
+// Prices and descriptions live in the frontend; stock lives in the DB.
+const CATALOGUE = {
+    'LAPTOP-001':     { name: 'ProBook X15',          category: 'Laptops',    price: 1299, rating: 4.8, reviews: 342, desc: '15" OLED · Intel Core Ultra 9 · 32GB RAM · 1TB SSD' },
+    'PHONE-001':      { name: 'Nexus S24 Pro',         category: 'Phones',     price: 999,  rating: 4.7, reviews: 891, desc: '6.7" AMOLED · 200MP Camera · 5G · 5000mAh battery' },
+    'HEADPHONES-001': { name: 'SoundPro ANC Elite',    category: 'Audio',      price: 349,  rating: 4.9, reviews: 1204,desc: 'Active Noise Cancellation · 40h battery · Hi-Res Audio' },
+    'WATCH-001':      { name: 'ChromaWatch Series 9',  category: 'Wearables',  price: 399,  rating: 4.6, reviews: 528, desc: 'Always-on AMOLED · Health tracking · GPS · 72h battery' },
+    'EARBUDS-001':    { name: 'AirPods Pro Max',       category: 'Audio',      price: 249,  rating: 4.8, reviews: 2103,desc: 'Spatial Audio · Transparency mode · Wireless charging' },
+    'TABLET-001':     { name: 'SlateBook Pro 12',      category: 'Tablets',    price: 799,  rating: 4.5, reviews: 416, desc: '12.9" Liquid Retina · M3 Chip · 5G · Apple Pencil support' },
+    'KEYBOARD-001':   { name: 'MechType Pro 75%',      category: 'Peripherals',price: 179,  rating: 4.7, reviews: 673, desc: 'Hot-swap switches · RGB · Bluetooth 5.3 · Aluminum frame' },
+}
 
-const fmt = (n) => n != null ? n.toFixed(2) : '—'
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const fmt = (n) => (n != null ? n.toFixed(2) : '—')
 const getTime = () => new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
 function stockStatus(qty) {
     if (qty <= 0)  return { label: 'Out of Stock', cls: 'badge-red',    icon: <XCircle size={12} /> }
     if (qty < 20)  return { label: 'Critical',     cls: 'badge-red',    icon: <AlertTriangle size={12} /> }
     if (qty < 50)  return { label: 'Low Stock',    cls: 'badge-yellow', icon: <AlertTriangle size={12} /> }
-    return              { label: 'Healthy',         cls: 'badge-green',  icon: <CheckCircle size={12} /> }
+    return              { label: 'In Stock',        cls: 'badge-green',  icon: <CheckCircle size={12} /> }
 }
 
-// ─── Mini sparkline chart ────────────────────────────────────────────────────
-
 const Sparkline = memo(({ data, color }) => (
-    <ResponsiveContainer width="100%" height={60}>
+    <ResponsiveContainer width="100%" height={52}>
         <AreaChart data={data} margin={{ top: 2, right: 0, left: 0, bottom: 2 }}>
             <defs>
                 <linearGradient id={`g-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
@@ -37,46 +43,61 @@ const Sparkline = memo(({ data, color }) => (
                 </linearGradient>
             </defs>
             <YAxis domain={['auto', 'auto']} hide />
-            <Area
-                type="monotone"
-                dataKey="stock"
-                stroke={color}
-                strokeWidth={2}
-                fill={`url(#g-${color.replace('#', '')})`}
-                dot={false}
-                isAnimationActive={false}
-            />
+            <Area type="monotone" dataKey="stock" stroke={color} strokeWidth={2}
+                fill={`url(#g-${color.replace('#', '')})`} dot={false} isAnimationActive={false} />
         </AreaChart>
     </ResponsiveContainer>
 ))
 
-// ─── Navbar ─────────────────────────────────────────────────────────────────
-
-function Navbar() {
+// ─── Navbar ───────────────────────────────────────────────────────────────────
+function Navbar({ cartCount }) {
     const location = useLocation()
     return (
         <nav className="navbar">
             <div className="navbar-brand">
                 <div className="brand-icon"><Server size={18} /></div>
-                <span className="brand-name">Nexus Inventory</span>
+                <span className="brand-name">Nexus Store</span>
             </div>
             <div className="navbar-links">
                 <Link to="/" className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}>
-                    <ShoppingCart size={16} /> Point of Sale
+                    <ShoppingBag size={16} /> Store
                 </Link>
                 <Link to="/admin" className={`nav-link ${location.pathname === '/admin' ? 'active' : ''}`}>
                     <LayoutDashboard size={16} /> Dashboard
                 </Link>
             </div>
+            <div className="navbar-right">
+                {cartCount > 0 && (
+                    <div className="cart-indicator">
+                        <ShoppingCart size={18} />
+                        <span className="cart-badge">{cartCount}</span>
+                    </div>
+                )}
+            </div>
         </nav>
     )
 }
 
-// ─── Point of Sale ───────────────────────────────────────────────────────────
+// ─── Star Rating ──────────────────────────────────────────────────────────────
+function Stars({ rating }) {
+    return (
+        <div className="stars">
+            {[1,2,3,4,5].map(i => (
+                <Star key={i} size={12} className={i <= Math.round(rating) ? 'star-filled' : 'star-empty'} />
+            ))}
+            <span className="rating-num">{rating}</span>
+        </div>
+    )
+}
 
-function PointOfSale() {
+// ─── Store Page ───────────────────────────────────────────────────────────────
+function StorePage({ onCartChange }) {
     const [inventory, setInventory] = useState([])
     const [toasts, setToasts] = useState([])
+    const [cart, setCart] = useState({})
+    const [filter, setFilter] = useState('All')
+
+    const categories = ['All', ...new Set(Object.values(CATALOGUE).map(p => p.category))]
 
     const addToast = (msg, type = 'success') => {
         const id = Date.now()
@@ -90,7 +111,6 @@ function PointOfSale() {
             .then(setInventory)
     }, [])
 
-    // Keep inventory up-to-date via WebSocket
     useEffect(() => {
         const client = new Client({
             webSocketFactory: () => new SockJS('http://localhost:8082/ws'),
@@ -109,73 +129,129 @@ function PointOfSale() {
     const handleOrder = async (sku, qty) => {
         try {
             const res = await fetch(`http://localhost:8081/api/orders/place?sku=${sku}&quantity=${qty}`, { method: 'POST' })
-            if (res.ok) addToast(`Ordered ${qty}× ${sku}`, 'success')
-            else addToast('Order failed — service error', 'error')
+            if (res.ok) {
+                const meta = CATALOGUE[sku]
+                addToast(`Added ${meta?.name || sku} to cart`, 'success')
+                setCart(prev => {
+                    const next = { ...prev, [sku]: (prev[sku] || 0) + qty }
+                    onCartChange(Object.values(next).reduce((a,b) => a+b, 0))
+                    return next
+                })
+            } else {
+                addToast('Could not place order', 'error')
+            }
         } catch {
-            addToast('Order failed — cannot reach server', 'error')
+            addToast('Server unreachable', 'error')
         }
     }
 
+    const filtered = inventory.filter(item => {
+        const meta = CATALOGUE[item.sku]
+        return filter === 'All' || meta?.category === filter
+    })
+
     return (
-        <div className="page">
-            {/* Toast notifications */}
+        <div className="store-page">
             <div className="toast-stack">
                 {toasts.map(t => (
                     <div key={t.id} className={`toast toast-${t.type}`}>{t.msg}</div>
                 ))}
             </div>
 
-            <div className="page-header">
-                <div>
-                    <h1><ShoppingBag size={24} /> Point of Sale</h1>
-                    <p className="subtitle">Place orders against live inventory. Each order fires a Kafka event consumed by the ML forecasting service.</p>
+            {/* Hero Banner */}
+            <div className="store-hero">
+                <div className="store-hero-content">
+                    <p className="store-hero-tag">POWERED BY PREDICTIVE AI</p>
+                    <h1 className="store-hero-title">Next-Gen Tech,<br />Delivered Fast</h1>
+                    <p className="store-hero-sub">Real-time inventory · ML-powered restocking · Kafka event streaming</p>
                 </div>
             </div>
 
-            <div className="product-grid">
-                {inventory.length === 0 && (
-                    <div className="empty-state">
-                        <RefreshCw size={32} className="spin" />
-                        <p>Connecting to inventory service...</p>
+            {/* Category filter tabs */}
+            <div className="store-filters">
+                {categories.map(cat => (
+                    <button
+                        key={cat}
+                        className={`filter-tab ${filter === cat ? 'filter-active' : ''}`}
+                        onClick={() => setFilter(cat)}
+                    >
+                        {cat}
+                    </button>
+                ))}
+            </div>
+
+            {/* Product Grid */}
+            <div className="store-grid">
+                {filtered.length === 0 && (
+                    <div className="empty-state" style={{ gridColumn: '1/-1' }}>
+                        <RefreshCw size={28} className="spin" />
+                        <p>Connecting to inventory service…</p>
                     </div>
                 )}
-                {inventory.map(item => {
+                {filtered.map(item => {
+                    const meta = CATALOGUE[item.sku] || { name: item.sku, price: 0, rating: 0, reviews: 0, desc: '' }
                     const status = stockStatus(item.quantity)
                     const outOfStock = item.quantity <= 0
+
                     return (
                         <div key={item.sku} className={`product-card ${outOfStock ? 'card-disabled' : ''}`}>
-                            <div className="product-card-header">
-                                <div>
-                                    <div className="product-name">{item.sku.split('-')[0]}</div>
-                                    <code className="sku-code">{item.sku}</code>
-                                </div>
-                                <span className={`badge ${status.cls}`}>
+                            <div className="product-img-wrap">
+                                <img
+                                    src={`/products/${item.sku}.png`}
+                                    alt={meta.name}
+                                    className="product-img"
+                                    onError={e => { e.target.style.display = 'none' }}
+                                />
+                                <span className={`product-badge badge ${status.cls}`}>
                                     {status.icon} {status.label}
                                 </span>
                             </div>
 
-                            <div className="stock-display">
-                                <span className="stock-number" style={{ color: item.quantity < 20 ? 'var(--c-red)' : item.quantity < 50 ? 'var(--c-yellow)' : 'var(--c-green)' }}>
-                                    {item.quantity}
-                                </span>
-                                <span className="stock-label">units in stock</span>
-                            </div>
+                            <div className="product-body">
+                                <p className="product-category">{meta.category}</p>
+                                <h3 className="product-name">{meta.name}</h3>
+                                <p className="product-desc">{meta.desc}</p>
 
-                            <div className="product-actions">
-                                <button
-                                    className="btn btn-primary"
-                                    onClick={() => handleOrder(item.sku, 1)}
-                                    disabled={outOfStock}
-                                >
-                                    <ShoppingCart size={15} /> Purchase 1
-                                </button>
-                                <button
-                                    className="btn btn-secondary"
-                                    onClick={() => handleOrder(item.sku, 10)}
-                                    disabled={outOfStock}
-                                >
-                                    <Zap size={15} /> Order 10
-                                </button>
+                                <Stars rating={meta.rating} />
+                                <p className="product-reviews">{meta.reviews.toLocaleString()} reviews</p>
+
+                                <div className="product-footer">
+                                    <span className="product-price">${meta.price.toLocaleString()}</span>
+                                    <div className="product-actions">
+                                        <button
+                                            className="btn btn-primary"
+                                            onClick={() => handleOrder(item.sku, 1)}
+                                            disabled={outOfStock}
+                                        >
+                                            <ShoppingCart size={14} /> Add to Cart
+                                        </button>
+                                        <button
+                                            className="btn btn-ghost"
+                                            onClick={() => handleOrder(item.sku, 5)}
+                                            disabled={outOfStock}
+                                            title="Order 5 units"
+                                        >
+                                            <Zap size={14} />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="stock-bar-wrap">
+                                    <div className="stock-bar">
+                                        <div
+                                            className="stock-bar-fill"
+                                            style={{
+                                                width: `${Math.min(100, (item.quantity / 200) * 100)}%`,
+                                                background: item.quantity < 20
+                                                    ? 'var(--c-red)'
+                                                    : item.quantity < 50
+                                                    ? 'var(--c-yellow)'
+                                                    : 'var(--c-green)'
+                                            }}
+                                        />
+                                    </div>
+                                    <span className="stock-text">{item.quantity} left</span>
+                                </div>
                             </div>
                         </div>
                     )
@@ -185,19 +261,15 @@ function PointOfSale() {
     )
 }
 
-// ─── Admin Dashboard ─────────────────────────────────────────────────────────
-
+// ─── Dashboard Page ───────────────────────────────────────────────────────────
 function Dashboard() {
-    const [items, setItems]           = useState([])     // [{sku, quantity, aiVelocity}]
-    const [velocities, setVelocities] = useState({})     // sku -> velocity from WS
-    const [chartData, setChartData]   = useState({})     // sku -> [{time,stock}]
+    const [items, setItems]           = useState([])
+    const [velocities, setVelocities] = useState({})
+    const [chartData, setChartData]   = useState({})
     const [eventLog, setEventLog]     = useState([])
     const [connected, setConnected]   = useState(false)
     const [lastUpdate, setLastUpdate] = useState(null)
 
-    const chartRef = useRef({})
-
-    // Initial HTTP load
     useEffect(() => {
         fetch('http://localhost:8082/api/inventory')
             .then(r => r.json())
@@ -205,41 +277,33 @@ function Dashboard() {
                 setItems(data)
                 const now = getTime()
                 const initial = {}
-                data.forEach(item => {
-                    initial[item.sku] = [{ time: now, stock: item.quantity }]
-                })
+                data.forEach(item => { initial[item.sku] = [{ time: now, stock: item.quantity }] })
                 setChartData(initial)
             })
     }, [])
 
-    // WebSocket for real-time updates
     useEffect(() => {
         const client = new Client({
             webSocketFactory: () => new SockJS('http://localhost:8082/ws'),
             debug: () => {},
             onConnect: () => {
                 setConnected(true)
-
                 client.subscribe('/topic/inventory', msg => {
                     const item = JSON.parse(msg.body)
                     const now = getTime()
                     setLastUpdate(now)
-
-                    setItems(prev =>
-                        prev.map(i => i.sku === item.sku ? { ...i, quantity: item.quantity } : i)
-                    )
+                    setItems(prev => prev.map(i => i.sku === item.sku ? { ...i, quantity: item.quantity } : i))
                     setChartData(prev => ({
                         ...prev,
                         [item.sku]: [...(prev[item.sku] || []), { time: now, stock: item.quantity }].slice(-30)
                     }))
                     setEventLog(prev => [{
                         sku: item.sku,
-                        type: 'ORDER',
-                        detail: `Stock → ${item.quantity}`,
+                        name: CATALOGUE[item.sku]?.name || item.sku,
+                        detail: `Stock updated → ${item.quantity} units`,
                         time: now
                     }, ...prev].slice(0, 50))
                 })
-
                 client.subscribe('/topic/ai-predictions', msg => {
                     const ev = JSON.parse(msg.body)
                     setVelocities(prev => ({ ...prev, [ev.sku]: ev.ai_velocity }))
@@ -251,23 +315,20 @@ function Dashboard() {
         return () => client.deactivate()
     }, [])
 
-    // Summary stats
-    const totalUnits  = items.reduce((s, i) => s + (i.quantity || 0), 0)
+    const totalUnits    = items.reduce((s, i) => s + (i.quantity || 0), 0)
     const criticalCount = items.filter(i => i.quantity > 0 && i.quantity < 20).length
-    const outCount    = items.filter(i => i.quantity <= 0).length
-    const avgVelocity = Object.values(velocities).length
-        ? (Object.values(velocities).reduce((a, b) => a + b, 0) / Object.values(velocities).length)
-        : null
+    const outCount      = items.filter(i => i.quantity <= 0).length
+    const velValues     = Object.values(velocities)
+    const avgVelocity   = velValues.length ? velValues.reduce((a, b) => a + b, 0) / velValues.length : null
 
     return (
         <div className="page dashboard">
-            {/* ── Header ── */}
             <div className="dash-header">
                 <div>
-                    <h1><TrendingUp size={24} /> Inventory Dashboard</h1>
+                    <h1><TrendingUp size={22} /> Inventory Dashboard</h1>
                     <p className="subtitle">
                         Live telemetry via Kafka + WebSockets &nbsp;·&nbsp;
-                        ML velocity = units sold / elapsed minutes (5-min sliding window)
+                        Velocity = units / elapsed minutes (5-min window)
                     </p>
                 </div>
                 <div className={`connection-pill ${connected ? 'conn-ok' : 'conn-err'}`}>
@@ -276,7 +337,6 @@ function Dashboard() {
                 </div>
             </div>
 
-            {/* ── Summary KPI bar ── */}
             <div className="kpi-bar">
                 <div className="kpi-card">
                     <div className="kpi-label">Total Units</div>
@@ -307,38 +367,40 @@ function Dashboard() {
             </div>
 
             <div className="dash-body">
-                {/* ── SKU cards grid ── */}
                 <div className="sku-grid">
                     {items.length === 0 && (
                         <div className="empty-state">
                             <RefreshCw size={28} className="spin" />
-                            <p>Loading inventory...</p>
+                            <p>Loading inventory…</p>
                         </div>
                     )}
                     {items.map(item => {
-                        const vel   = velocities[item.sku]
-                        const qty   = item.quantity
+                        const vel    = velocities[item.sku]
+                        const qty    = item.quantity
                         const status = stockStatus(qty)
                         const isCrit = qty < 20
+                        const meta   = CATALOGUE[item.sku]
                         const depMin = vel > 0 && qty > 0 ? qty / vel : null
                         const chartColor = isCrit ? '#ef4444' : '#22d3ee'
 
                         return (
                             <div key={item.sku} className={`sku-card ${isCrit && qty > 0 ? 'sku-card-critical' : ''}`}>
-                                {/* Header row */}
                                 <div className="sku-card-top">
                                     <div>
                                         <div className="sku-card-name">
-                                            <Package size={15} /> {item.sku}
+                                            <Package size={14} />
+                                            {meta?.name || item.sku}
                                         </div>
-                                        <span className={`badge ${status.cls}`}>{status.icon} {status.label}</span>
+                                        <code className="sku-code-sm">{item.sku}</code>
+                                        <span className={`badge ${status.cls}`} style={{ marginTop: '6px', display: 'inline-flex' }}>
+                                            {status.icon} {status.label}
+                                        </span>
                                     </div>
                                     <div className="sku-qty" style={{ color: isCrit ? 'var(--c-red)' : 'var(--c-text)' }}>
                                         {qty}
                                     </div>
                                 </div>
 
-                                {/* Sparkline */}
                                 <div className="sku-sparkline">
                                     {chartData[item.sku]?.length > 1
                                         ? <Sparkline data={chartData[item.sku]} color={chartColor} />
@@ -346,48 +408,58 @@ function Dashboard() {
                                     }
                                 </div>
 
-                                {/* Metrics footer */}
                                 <div className="sku-metrics">
                                     <div className="metric">
                                         <span className="metric-label"><Activity size={12} /> ML Velocity</span>
                                         <span className="metric-val" style={{ color: 'var(--c-cyan)' }}>
-                                            {vel !== undefined ? `${fmt(vel)} u/m` : <span className="muted">awaiting data</span>}
+                                            {vel !== undefined
+                                                ? `${fmt(vel)} u/m`
+                                                : <span className="muted">awaiting orders</span>}
                                         </span>
                                     </div>
                                     <div className="metric">
                                         <span className="metric-label"><Clock size={12} /> Est. Depletion</span>
                                         <span className="metric-val" style={{ color: isCrit ? 'var(--c-red)' : 'var(--c-orange)' }}>
                                             {depMin != null
-                                                ? depMin < 1 ? `${(depMin * 60).toFixed(0)}s`
-                                                             : depMin < 60 ? `${depMin.toFixed(1)}m`
-                                                             : `${(depMin / 60).toFixed(1)}h`
-                                                : <span className="muted">{vel === 0 ? 'No sales yet' : 'Waiting for data'}</span>
-                                            }
+                                                ? depMin < 1
+                                                    ? `${(depMin * 60).toFixed(0)}s`
+                                                    : depMin < 60
+                                                    ? `${depMin.toFixed(1)}m`
+                                                    : `${(depMin / 60).toFixed(1)}h`
+                                                : <span className="muted">{vel === 0 ? 'No sales yet' : 'Waiting for data'}</span>}
                                         </span>
                                     </div>
+                                    {meta && (
+                                        <div className="metric">
+                                            <span className="metric-label"><ShoppingBag size={12} /> Price</span>
+                                            <span className="metric-val" style={{ color: 'var(--c-subtle)' }}>
+                                                ${meta.price.toLocaleString()}
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )
                     })}
                 </div>
 
-                {/* ── Event log sidebar ── */}
                 <div className="event-log">
                     <div className="event-log-header">
-                        <Activity size={16} /> Event Log
+                        <Activity size={15} /> Event Log
                         <span className="event-count">{eventLog.length}</span>
                     </div>
                     <div className="event-log-body">
                         {eventLog.length === 0 && (
-                            <div className="empty-log">No events yet. Place orders from the Point of Sale.</div>
+                            <div className="empty-log">No events yet.<br />Place orders from the Store.</div>
                         )}
                         {eventLog.map((ev, i) => (
                             <div key={i} className="event-row">
                                 <div className="event-row-top">
-                                    <code className="event-sku">{ev.sku}</code>
+                                    <span className="event-name">{ev.name}</span>
                                     <span className="event-time">{ev.time}</span>
                                 </div>
                                 <div className="event-detail">{ev.detail}</div>
+                                <code className="event-sku">{ev.sku}</code>
                             </div>
                         ))}
                     </div>
@@ -397,17 +469,17 @@ function Dashboard() {
     )
 }
 
-// ─── App Root ────────────────────────────────────────────────────────────────
-
+// ─── App Root ─────────────────────────────────────────────────────────────────
 export default function App() {
+    const [cartCount, setCartCount] = useState(0)
     return (
         <BrowserRouter>
             <div className="app-shell">
-                <Navbar />
+                <Navbar cartCount={cartCount} />
                 <main className="app-main">
                     <Routes>
-                        <Route path="/"      element={<PointOfSale />} />
-                        <Route path="/admin" element={<Dashboard />}   />
+                        <Route path="/"      element={<StorePage onCartChange={setCartCount} />} />
+                        <Route path="/admin" element={<Dashboard />} />
                     </Routes>
                 </main>
             </div>
